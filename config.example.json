@@ -1,0 +1,21 @@
+{
+  "publicUrl": "http://homebridge.local:8085",
+  "mailMode": "smtp",
+  "registration": {
+    "allowGuests": true,
+    "requireVerifiedForRanked": true
+  },
+  "smtp": {
+    "host": "",
+    "port": 587,
+    "secure": false,
+    "user": "",
+    "pass": "",
+    "from": "Hive Online <hive@homebridge.local>",
+    "allowNoAuth": false
+  },
+  "zeptomail": {
+    "apiUrl": "https://api.zeptomail.eu/v1.1/email",
+    "token": ""
+  }
+}

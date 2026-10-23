@@ -1,0 +1,11 @@
+node_modules
+dist
+data
+config
+.git
+.vscode
+*.log
+.env
+.env.*
+!config.example.json
+deploy

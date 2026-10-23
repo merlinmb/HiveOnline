@@ -1,0 +1,50 @@
+name: hive-online
+
+services:
+  hive:
+    build:
+      context: .
+    image: hive-online:latest
+    container_name: hive
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${HIVE_PORT:-8085}:3000"
+    environment:
+      NODE_ENV: production
+      PUBLIC_URL: "${PUBLIC_URL:-http://homebridge.local:8085}"
+      TZ: "${TZ:-Europe/London}"
+      MAIL_MODE: "${MAIL_MODE:-smtp}"
+      SMTP_HOST: "${SMTP_HOST:-mailpit}"
+      SMTP_PORT: "${SMTP_PORT:-1025}"
+      SMTP_SECURE: "${SMTP_SECURE:-false}"
+      SMTP_ALLOW_NO_AUTH: "${SMTP_ALLOW_NO_AUTH:-true}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-admin@parkm8.com}"
+      ZEPTOMAIL_API_URL: "${ZEPTOMAIL_API_URL:-https://api.zeptomail.eu/v1.1/email}"
+      ZEPTOMAIL_TOKEN: "${ZEPTOMAIL_TOKEN:-}"
+    volumes:
+      - ./data:/data
+      - ./config:/config
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1));"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: hive-mailpit
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"

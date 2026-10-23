@@ -1,0 +1,9 @@
+@import './styles/base.css';
+@import './styles/landing.css';
+@import './styles/auth.css';
+@import './styles/lobby.css';
+@import './styles/game.css';
+@import './styles/social.css';
+@import './styles/rules.css';
+@import './styles/theme.css';
+@import './styles/responsive.css';
