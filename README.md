@@ -144,7 +144,7 @@ Configuration is read from `config/app.json` (or `/config/app.json` in the conta
     "secure": false,
     "user": "",
     "pass": "",
-    "from": "admin@parkm8.com",
+    "from": "admin@example.com",
     "allowNoAuth": true
   },
   "zeptomail": {
@@ -197,7 +197,7 @@ For real delivery, edit the remote `.env`:
 MAIL_MODE=zeptomail
 ZEPTOMAIL_TOKEN=your-private-token
 ZEPTOMAIL_API_URL=https://api.zeptomail.eu/v1.1/email
-SMTP_FROM=admin@parkm8.com
+SMTP_FROM=admin@example.com
 ```
 
 ```bash
