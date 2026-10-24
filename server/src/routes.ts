@@ -105,8 +105,8 @@ export function createApiRouter({ db, config, mailer, games, realtime }: Deps): 
       const id = newId();
       const now = Date.now();
       db.prepare(
-        `INSERT INTO users (id, username, email, password_hash, is_guest, email_verified, rating, created_at, last_seen)
-         VALUES (?, ?, ?, ?, 0, 0, 1200, ?, ?)`,
+        `INSERT INTO users (id, username, email, password_hash, is_guest, email_verified, rating, theme, created_at, last_seen)
+         VALUES (?, ?, ?, ?, 0, 0, 1200, 'light', ?, ?)`,
       ).run(id, username, email, passwordHash, now, now);
 
       const token = createEmailToken(db, id);

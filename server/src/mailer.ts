@@ -142,6 +142,11 @@ export class Mailer {
     url: string,
   ): Promise<boolean> {
     const from = splitAddress(this.config.smtp.from);
+    // The ZeptoMail dashboard shows keys as "Zoho-enczapikey <key>"; accept
+    // either form in ZEPTOMAIL_TOKEN.
+    const token = this.config.zeptomail.token
+      .trim()
+      .replace(/^Zoho-enczapikey\s+/i, '');
     const body = {
       from: { address: from.address, name: from.name },
       to: [
@@ -163,7 +168,7 @@ export class Mailer {
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
-          authorization: `Zoho-enczapikey ${this.config.zeptomail.token}`,
+          authorization: `Zoho-enczapikey ${token}`,
         },
         body: JSON.stringify(body),
       });

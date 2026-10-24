@@ -58,8 +58,15 @@ function readJson(file: string): Partial<AppConfig> | null {
 }
 
 export function loadConfig(): AppConfig {
-  const configDir = path.resolve(process.env.CONFIG_DIR ?? (isProduction ? '/config' : 'config'));
-  const dataDir = path.resolve(process.env.DATA_DIR ?? (isProduction ? '/data' : 'data'));
+  // The container uses absolute /config and /data. A production build run
+  // directly on Windows should still stay inside the project folder.
+  const containerPaths = isProduction && process.platform !== 'win32';
+  const configDir = path.resolve(
+    process.env.CONFIG_DIR ?? (containerPaths ? '/config' : 'config'),
+  );
+  const dataDir = path.resolve(
+    process.env.DATA_DIR ?? (containerPaths ? '/data' : 'data'),
+  );
   const file = path.join(configDir, 'app.json');
   const fileConfig = readJson(file) ?? {};
 

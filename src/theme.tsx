@@ -29,7 +29,7 @@ function storedTheme(): Theme {
   }
   return isTheme(document.documentElement.dataset.theme)
     ? (document.documentElement.dataset.theme as Theme)
-    : 'dark';
+    : 'light';
 }
 
 function paint(theme: Theme): void {

@@ -235,7 +235,7 @@ The same command works locally with `npm run verify-user -- --list`.
 
 ### Appearance
 
-The header carries a sun/moon toggle, and the profile page has a Light/Dark control. Signed-in players have the choice saved to their account, so it follows them to another browser; a `localStorage` copy makes the first paint match before React loads. Guests keep the choice on the device. Dark is the default.
+The header carries a sun/moon toggle, and the profile page has a Light/Dark control. Signed-in players have the choice saved to their account, so it follows them to another browser; a `localStorage` copy makes the first paint match before React loads. Guests keep the choice on the device. Light is the default; choose Dark to return to the original look.
 
 ---
 

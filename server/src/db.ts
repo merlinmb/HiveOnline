@@ -73,7 +73,7 @@ export function openDb(dataDir: string): DB {
       ranked_games   INTEGER NOT NULL DEFAULT 0,
       wins           INTEGER NOT NULL DEFAULT 0,
       losses         INTEGER NOT NULL DEFAULT 0,
-      theme          TEXT NOT NULL DEFAULT 'dark',
+      theme          TEXT NOT NULL DEFAULT 'light',
       created_at     INTEGER NOT NULL,
       last_seen      INTEGER NOT NULL
     );
@@ -118,7 +118,7 @@ export function openDb(dataDir: string): DB {
   // Lightweight migrations for databases created by earlier versions.
   const userColumns = db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>;
   if (!userColumns.some((column) => column.name === 'theme')) {
-    db.exec("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'");
+    db.exec("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'light'");
   }
 
   return db;
@@ -159,7 +159,7 @@ export function toPublicUser(row: UserRow): PublicUser {
 }
 
 export function toSelfUser(row: UserRow): SelfUser {
-  return { ...toPublicUser(row), email: row.email, theme: row.theme === 'light' ? 'light' : 'dark' };
+  return { ...toPublicUser(row), email: row.email, theme: row.theme === 'dark' ? 'dark' : 'light' };
 }
 
 const GUEST_ADJECTIVES = [
@@ -211,8 +211,8 @@ const GUEST_NOUNS = [
 export function createGuestUser(db: DB): UserRow {
   const now = Date.now();
   const insert = db.prepare(
-    `INSERT INTO users (id, username, email, password_hash, is_guest, email_verified, rating, created_at, last_seen)
-     VALUES (?, ?, NULL, NULL, 1, 0, 1200, ?, ?)`,
+    `INSERT INTO users (id, username, email, password_hash, is_guest, email_verified, rating, theme, created_at, last_seen)
+     VALUES (?, ?, NULL, NULL, 1, 0, 1200, 'light', ?, ?)`,
   );
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
