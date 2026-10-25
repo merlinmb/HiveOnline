@@ -12,7 +12,7 @@
   }
 
   .game-layout {
-    grid-template-columns: minmax(0, 1fr) 318px;
+    grid-template-columns: 224px minmax(0, 1fr) 318px;
     gap: 16px;
   }
 
@@ -92,14 +92,39 @@
     grid-template-columns: 1fr;
   }
 
+  .board-column {
+    order: 1;
+  }
+
+  .hand-column {
+    position: static;
+    order: 2;
+  }
+
+  .hand-column .hand-cards {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .hand-column .hand-card {
+    min-width: 73px;
+  }
+
+  .hand-column .hand-head {
+    flex-direction: row;
+    align-items: center;
+  }
+
   .game-side {
+    order: 3;
     display: grid;
     grid-template-columns: 1fr 1fr;
     align-items: start;
   }
 
   .turn-card,
-  .side-tabs {
+  .side-tabs,
+  .game-side .player-card {
     grid-column: 1;
   }
 
@@ -976,7 +1001,7 @@
   }
 
   .result-stats {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .modal-backdrop {
@@ -1033,6 +1058,826 @@
 
   .rules-footer-cta {
     padding: 22px;
+  }
+}
+
+/* ==========================================================================
+   Game table on phones
+   The board is the priority: a compact topbar and player strip replace the
+   desktop chrome, the rack sits directly above the board, and decorative
+   panels (facts, full player cards, long turn copy) are dropped.
+   ========================================================================== */
+
+@media (max-width: 720px) {
+  /* The table is a focused mode; the game topbar has its own way back. */
+  body:has(.game-page) .site-header,
+  body:has(.game-page) .site-footer {
+    display: none;
+  }
+
+  .game-page {
+    width: calc(100% - 16px);
+    padding: 10px 0 calc(36px + env(safe-area-inset-bottom));
+  }
+
+  .game-topbar {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 7px;
+    padding: 0 1px 9px;
+    margin-bottom: 9px;
+  }
+
+  .back-link {
+    flex: none;
+    font-size: 0.7rem;
+    font-weight: 750;
+  }
+
+  .game-title {
+    order: 0;
+    width: auto;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    gap: 5px;
+    overflow: hidden;
+  }
+
+  .game-title-label,
+  .game-title .game-badge-optional {
+    display: none;
+  }
+
+  .game-code {
+    flex: none;
+    margin-right: 0;
+    font-size: 0.98rem;
+    letter-spacing: 0.03em;
+  }
+
+  .game-title .badge {
+    flex: none;
+    padding: 0.13rem 0.34rem;
+    font-size: 0.5rem;
+    letter-spacing: 0.04em;
+  }
+
+  .game-top-actions {
+    flex: none;
+    gap: 0;
+    margin-left: 0;
+  }
+
+  .game-top-actions .btn {
+    display: inline-flex;
+    min-height: 32px;
+    padding: 0.36rem 0.56rem;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .game-top-actions .btn::after {
+    content: 'Link';
+    font-size: 0.64rem;
+  }
+
+  /* ---- two-player strip ------------------------------------------------ */
+
+  .mobile-match {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background:
+      linear-gradient(160deg, rgba(255, 255, 255, 0.028), transparent 50%),
+      #101812;
+  }
+
+  .mobile-player {
+    --mp-accent: var(--border-strong);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 5px 6px;
+    border-left: 2px solid var(--mp-accent);
+    border-radius: 9px;
+  }
+
+  .mobile-player-white {
+    --mp-accent: #d9c8a0;
+  }
+
+  .mobile-player-black {
+    --mp-accent: #687767;
+  }
+
+  .mobile-player.is-rival {
+    flex-direction: row-reverse;
+    text-align: right;
+  }
+
+  .mobile-player.is-active {
+    background: rgba(231, 179, 74, 0.075);
+    border-left-color: var(--gold);
+  }
+
+  .mobile-player.is-rival.is-active {
+    border-right: 2px solid var(--gold);
+    border-left-color: transparent;
+  }
+
+  .mobile-player .color-chip {
+    display: none;
+  }
+
+  .mobile-player .avatar {
+    flex: none;
+  }
+
+  .mobile-player-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    line-height: 1.25;
+  }
+
+  .mobile-player-copy strong {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 0.74rem;
+    font-weight: 750;
+  }
+
+  .mobile-player.is-rival .mobile-player-copy strong {
+    justify-content: flex-end;
+  }
+
+  .mobile-player-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-player-copy > span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow: hidden;
+    color: var(--muted-dim);
+    font-size: 0.55rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-player.is-rival .mobile-player-copy > span {
+    justify-content: flex-end;
+  }
+
+  .mobile-you {
+    flex: none;
+    padding: 0 4px;
+    border: 1px solid rgba(231, 179, 74, 0.3);
+    border-radius: 99px;
+    color: var(--gold);
+    font-size: 0.46rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .mobile-player .turn-dot {
+    flex: none;
+  }
+
+  /* ---- board first, rack within reach -------------------------------- */
+
+  .game-layout {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .hand-column {
+    order: 1;
+    position: static;
+    gap: 0;
+  }
+
+  .hand-column .player-card {
+    display: none;
+  }
+
+  .board-column {
+    order: 2;
+    gap: 8px;
+  }
+
+  .game-side {
+    order: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .hand-rack {
+    padding: 8px 9px 6px;
+    border-radius: 13px;
+  }
+
+  .hand-column .hand-head {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .hand-head {
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .hand-title {
+    gap: 6px;
+    font-size: 0.59rem;
+  }
+
+  .hand-count {
+    font-size: 0.55rem;
+  }
+
+  .hand-column .hand-cards {
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    padding: 1px 1px 2px;
+    scroll-snap-type: x proximity;
+  }
+
+  .hand-column .hand-card {
+    min-width: 56px;
+    padding: 4px 4px 2px;
+    border-radius: 9px;
+    scroll-snap-align: start;
+  }
+
+  .hand-card-art .tile-visual {
+    width: 46px;
+    height: 46px;
+  }
+
+  .hand-card-name {
+    font-size: 0.54rem;
+  }
+
+  .hand-card-count {
+    right: -4px;
+    bottom: 1px;
+    padding: 0 4px;
+    font-size: 0.53rem;
+  }
+
+  .board-panel {
+    padding: 6px;
+    border-radius: 14px;
+  }
+
+  .board-banner {
+    min-height: 28px;
+    padding: 5px 8px;
+    gap: 6px;
+    border-radius: 8px;
+    font-size: 0.63rem;
+    line-height: 1.35;
+  }
+
+  .board-banner > svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .board-banner-aside {
+    display: none;
+  }
+
+  .hive-board {
+    min-height: 0;
+    aspect-ratio: 1.14 / 1;
+    border-radius: 10px;
+  }
+
+  .board-hint {
+    margin-top: 6px;
+    padding: 6px 8px;
+    gap: 5px;
+    border-radius: 8px;
+    font-size: 0.59rem;
+    line-height: 1.4;
+  }
+
+  .board-hint svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* ---- slim action bar, log and chat ---------------------------------- */
+
+  .game-side > .player-card,
+  .game-facts {
+    display: none;
+  }
+
+  .turn-card {
+    padding: 8px 11px;
+    border-radius: 12px;
+  }
+
+  .turn-card-top {
+    margin-bottom: 0;
+  }
+
+  .turn-card-label,
+  .move-counter {
+    font-size: 0.55rem;
+  }
+
+  .turn-card-main {
+    display: none;
+  }
+
+  .turn-card-actions {
+    margin-top: 7px;
+    gap: 6px;
+  }
+
+  .turn-card-actions .btn {
+    flex: 1 1 auto;
+    min-height: 34px;
+    padding: 0.36rem 0.55rem;
+    font-size: 0.64rem;
+  }
+
+  .side-tabs {
+    padding: 3px;
+    border-radius: 10px;
+  }
+
+  .side-tabs button {
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 0.65rem;
+  }
+
+  .side-tabs button span {
+    min-width: 16px;
+    height: 16px;
+    font-size: 0.52rem;
+  }
+
+  .side-panel-body {
+    border-radius: 12px;
+  }
+
+  .side-panel-body .move-log,
+  .side-panel-body .chat-panel {
+    max-height: 242px;
+  }
+
+  /* ---- pass & play ----------------------------------------------------- */
+
+  .hotseat-page .hotseat-head {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    padding: 0 1px 8px;
+    margin-bottom: 8px;
+  }
+
+  .hotseat-page .hotseat-back {
+    display: inline-flex;
+    flex: none;
+  }
+
+  .hotseat-page .hotseat-head > div:first-of-type {
+    display: contents;
+  }
+
+  .hotseat-page .hotseat-head .eyebrow,
+  .hotseat-page .hotseat-head p {
+    display: none;
+  }
+
+  .hotseat-page .hotseat-head h1 {
+    margin: 0;
+    color: var(--muted-dim);
+    font-family: var(--sans);
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .hotseat-page .hotseat-head-actions {
+    width: auto;
+    flex: none;
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .hotseat-page .hotseat-head-actions .hotseat-players-note {
+    display: none;
+  }
+
+  .hotseat-page .hotseat-head-actions .btn {
+    min-height: 32px;
+    padding: 0.34rem 0.52rem;
+    font-size: 0.63rem;
+  }
+
+  /* The turn card and rack already say whose turn it is. */
+  .hotseat-page .hotseat-floating {
+    display: none;
+  }
+
+  .hotseat-page .board-column > .player-card {
+    display: none;
+  }
+
+  .hotseat-page .board-column .hand-rack {
+    order: -1;
+  }
+
+  .hotseat-page .hotseat-note,
+  .hotseat-page .local-facts,
+  .hotseat-page .local-rules-link {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-page {
+    width: calc(100% - 10px);
+  }
+
+  /* Keep tall dialogs from being clipped when centred in a short viewport. */
+  .modal {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+
+  .game-title .badge {
+    padding: 0.12rem 0.3rem;
+    font-size: 0.47rem;
+  }
+
+  .mobile-match {
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .mobile-player {
+    gap: 5px;
+    padding: 4px 5px;
+  }
+
+  .mobile-player-copy strong {
+    font-size: 0.7rem;
+  }
+
+  .hand-column .hand-card {
+    min-width: 58px;
+  }
+
+  .hand-card-art .tile-visual {
+    width: 48px;
+    height: 48px;
+  }
+
+  .turn-card-actions .btn {
+    font-size: 0.62rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .hand-column .hand-card {
+    min-width: 54px;
+  }
+
+  .hand-card-art .tile-visual {
+    width: 44px;
+    height: 44px;
+  }
+
+  .mobile-player-copy strong {
+    font-size: 0.68rem;
+  }
+
+  .mobile-player-copy > span {
+    font-size: 0.52rem;
+  }
+}
+
+/* ==========================================================================
+   Short viewports (phones in landscape, small laptop windows)
+   Same table-first idea as phones, but the width is used for three rails so
+   the board can stay big without forcing the page to scroll.
+   ========================================================================== */
+
+@media (max-height: 540px) and (min-width: 740px) {
+  body:has(.game-page) .site-header,
+  body:has(.game-page) .site-footer {
+    display: none;
+  }
+
+  .game-page {
+    width: calc(100% - 16px);
+    padding: 6px 0 10px;
+  }
+
+  .game-topbar {
+    flex-wrap: nowrap;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 0 1px 6px;
+  }
+
+  .game-title {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .game-topbar .game-title-label,
+  .game-topbar .game-badge-optional {
+    display: none;
+  }
+
+  .game-code {
+    font-size: 1.02rem;
+  }
+
+  .game-title .badge {
+    padding: 0.13rem 0.34rem;
+    font-size: 0.52rem;
+  }
+
+  .game-top-actions .btn {
+    min-height: 30px;
+    padding: 0.3rem 0.52rem;
+    font-size: 0.64rem;
+  }
+
+  .game-layout {
+    grid-template-columns: 168px minmax(0, 1fr) 256px;
+    gap: 10px;
+  }
+
+  .hand-column {
+    order: 1;
+    position: static;
+    gap: 8px;
+  }
+
+  .board-column {
+    order: 2;
+  }
+
+  .game-side {
+    order: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .hand-column .player-card,
+  .game-facts,
+  .mobile-match {
+    display: none;
+  }
+
+  /* Keep just the identity row of the two player cards. */
+  .player-card {
+    padding: 7px 9px;
+  }
+
+  .player-card-top,
+  .player-card-foot {
+    display: none;
+  }
+
+  .player-card-main {
+    gap: 8px;
+  }
+
+  .hand-rack {
+    padding: 8px 8px 6px;
+    border-radius: 13px;
+  }
+
+  .hand-head {
+    margin-bottom: 5px;
+  }
+
+  .hand-column .hand-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .hand-title {
+    gap: 5px;
+    font-size: 0.56rem;
+  }
+
+  .hand-count {
+    font-size: 0.53rem;
+  }
+
+  .hand-column .hand-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .hand-column .hand-card {
+    min-width: 0;
+    padding: 4px 3px 2px;
+    border-radius: 9px;
+  }
+
+  .hand-card-art .tile-visual {
+    width: 44px;
+    height: 44px;
+  }
+
+  .hand-card-name {
+    font-size: 0.5rem;
+  }
+
+  .board-panel {
+    padding: 6px;
+    border-radius: 14px;
+  }
+
+  .board-banner {
+    min-height: 26px;
+    padding: 4px 8px;
+    font-size: 0.6rem;
+    border-radius: 8px;
+  }
+
+  .board-banner > svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .board-banner-aside {
+    display: none;
+  }
+
+  .hive-board {
+    min-height: 0;
+    aspect-ratio: 1.5 / 1;
+    border-radius: 10px;
+  }
+
+  .board-hint {
+    display: none;
+  }
+
+  .turn-card {
+    padding: 8px 10px;
+    border-radius: 12px;
+  }
+
+  .turn-card-main {
+    display: none;
+  }
+
+  .turn-card-top {
+    margin-bottom: 0;
+  }
+
+  .turn-card-actions {
+    margin-top: 6px;
+  }
+
+  .turn-card-actions .btn {
+    min-height: 30px;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.63rem;
+  }
+
+  .side-tabs {
+    padding: 3px;
+    border-radius: 10px;
+  }
+
+  .side-tabs button {
+    min-height: 32px;
+    padding: 5px 7px;
+    font-size: 0.62rem;
+  }
+
+  .side-panel-body .move-log,
+  .side-panel-body .chat-panel {
+    max-height: 132px;
+  }
+
+  /* Dialogs must scroll inside a short viewport instead of clipping. */
+  .modal {
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+
+  .modal-head {
+    padding: 18px 26px 0;
+  }
+
+  .modal-head h2 {
+    margin-top: 4px;
+    font-size: 1.45rem;
+  }
+
+  .modal-body {
+    padding: 12px 26px 14px;
+  }
+
+  .modal-footer {
+    gap: 8px;
+    padding: 10px 26px 12px;
+  }
+
+  .modal-footer .btn {
+    min-height: 36px;
+  }
+
+  .modal-close {
+    top: 10px;
+    right: 10px;
+  }
+
+  .result-hero {
+    gap: 14px;
+    padding: 11px 13px;
+  }
+
+  .result-bug {
+    width: 54px;
+    height: 60px;
+  }
+
+  .result-bug svg {
+    width: 38px;
+    height: 38px;
+  }
+
+  .result-hero h3 {
+    font-size: 1.02rem;
+  }
+
+  .result-stats {
+    margin-top: 9px;
+  }
+
+  .result-stats > div {
+    padding: 7px 9px;
+  }
+
+  .result-note {
+    margin-top: 8px;
+  }
+
+  /* Hotseat keeps its own column order; it only needs the slim player cards. */
+  .hotseat-page .hotseat-head {
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+  }
+
+  .hotseat-page .hotseat-head h1 {
+    font-size: 1.7rem;
+  }
+
+  .hotseat-page .hotseat-head p {
+    display: none;
+  }
+
+  .hotseat-page .hotseat-note,
+  .hotseat-page .local-facts,
+  .hotseat-page .local-rules-link,
+  .hotseat-page .hotseat-floating {
+    display: none;
   }
 }
 

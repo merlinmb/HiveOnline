@@ -16,6 +16,7 @@ import {
 } from './auth';
 import {
   createGuestUser,
+  getBotUser,
   getUserById,
   getUserByLogin,
   toPublicUser,
@@ -23,6 +24,7 @@ import {
   type DB,
 } from './db';
 import { HttpError } from './errors';
+import type { ComputerPlayer } from './bot';
 import type { GameService } from './games';
 import type { Mailer } from './mailer';
 import type { RealtimeHandle } from './realtime';
@@ -44,6 +46,7 @@ interface Deps {
   mailer: Mailer;
   games: GameService;
   realtime: RealtimeHandle;
+  bot: ComputerPlayer;
 }
 
 type Handler = (req: Request, res: Response, next: NextFunction) => Promise<void> | void;
@@ -54,7 +57,7 @@ function asyncRoute(handler: Handler) {
   };
 }
 
-export function createApiRouter({ db, config, mailer, games, realtime }: Deps): Router {
+export function createApiRouter({ db, config, mailer, games, realtime, bot }: Deps): Router {
   const router = Router();
 
   const authLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 60 });
@@ -68,12 +71,20 @@ export function createApiRouter({ db, config, mailer, games, realtime }: Deps): 
   });
 
   router.get('/meta', (_req, res) => {
+    const botUser = getBotUser(db);
     res.json({
       allowGuests: config.registration.allowGuests,
       requireVerifiedForRanked: config.registration.requireVerifiedForRanked,
       mailConfigured: mailer.configured,
       publicUrl: config.publicUrl,
       online: realtime.onlineCount(),
+      computer: {
+        enabled: Boolean(botUser),
+        name: botUser?.username ?? 'HiveMind',
+        ai: config.ollama.enabled,
+        model: config.ollama.enabled ? config.ollama.model : null,
+        difficulty: config.bot.difficulty,
+      },
     });
   });
 
@@ -127,7 +138,7 @@ export function createApiRouter({ db, config, mailer, games, realtime }: Deps): 
       if (!parsed.success) throw new HttpError(400, firstZodError(parsed.error));
 
       const user = getUserByLogin(db, parsed.data.login);
-      if (!user || user.is_guest === 1) {
+      if (!user || user.is_guest === 1 || user.is_bot === 1) {
         throw new HttpError(401, 'Incorrect username or password.');
       }
       const valid = await verifyPassword(parsed.data.password, user.password_hash);
@@ -254,6 +265,11 @@ export function createApiRouter({ db, config, mailer, games, realtime }: Deps): 
     const parsed = createGameSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw new HttpError(400, firstZodError(parsed.error));
     const view = games.createGame(req.user as NonNullable<Request['user']>, parsed.data);
+    if (view.computer) {
+      // Preload the model so HiveMind's first reply is not a cold start.
+      bot.warmup();
+      bot.schedule(view.id);
+    }
     realtime.broadcastLobby();
     realtime.broadcastGame(view.id);
     res.status(201).json({ game: view });

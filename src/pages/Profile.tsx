@@ -251,6 +251,7 @@ export default function Profile() {
                         <Badge tone={game.ranked ? 'gold' : 'muted'}>
                           {game.ranked ? 'Ranked' : 'Casual'}
                         </Badge>
+                        {game.computer ? <Badge tone="blue">Computer</Badge> : null}
                         {game.settings.expansions ? <Badge tone="blue">Expanded</Badge> : null}
                         <span className="profile-game-time">
                           {formatRelative(game.updatedAt)}

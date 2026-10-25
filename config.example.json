@@ -17,5 +17,15 @@
   "zeptomail": {
     "apiUrl": "https://api.zeptomail.eu/v1.1/email",
     "token": ""
+  },
+  "ollama": {
+    "enabled": true,
+    "url": "http://192.168.1.148:11434",
+    "model": "llama3.1:8b",
+    "timeoutMs": 12000,
+    "minDelayMs": 900
+  },
+  "bot": {
+    "difficulty": "auto"
   }
 }

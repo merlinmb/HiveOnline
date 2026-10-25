@@ -5,11 +5,13 @@ export function PlayerAvatar({
   name,
   size = 44,
   isGuest = false,
+  isBot = false,
   className = '',
 }: {
   name: string;
   size?: number;
   isGuest?: boolean;
+  isBot?: boolean;
   className?: string;
 }) {
   const style = {
@@ -21,11 +23,11 @@ export function PlayerAvatar({
 
   return (
     <span
-      className={`avatar ${isGuest ? 'avatar-guest' : ''} ${className}`}
+      className={`avatar ${isGuest ? 'avatar-guest' : ''} ${isBot ? 'avatar-bot' : ''} ${className}`}
       style={style}
       aria-hidden="true"
     >
-      {initials(name)}
+      {isBot ? 'AI' : initials(name)}
     </span>
   );
 }

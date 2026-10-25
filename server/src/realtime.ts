@@ -4,6 +4,7 @@ import cookie from 'cookie';
 import type { AppConfig } from './config';
 import { COOKIE_NAME, resolveSession } from './auth';
 import type { DB } from './db';
+import type { ComputerPlayer } from './bot';
 import type { GameService } from './games';
 import { HttpError } from './errors';
 import { actionSchema, chatSchema, gameIdSchema } from './validation';
@@ -46,6 +47,7 @@ export function attachRealtime(
   db: DB,
   config: AppConfig,
   games: GameService,
+  bot: ComputerPlayer,
 ): RealtimeHandle {
   const presence = new Map<string, Set<string>>();
   const chats = new Map<string, ChatMessage[]>();
@@ -120,6 +122,9 @@ export function attachRealtime(
         chats: chats.get(row.id) ?? [],
         online: onlineCount(),
       });
+      // A reconnect (or an unfinished table opened afresh) may land on a turn
+      // that is waiting for the computer.
+      bot.schedule(row.id);
     });
 
     socket.on('game:action', (payload: unknown, ack: unknown) => {
@@ -134,6 +139,7 @@ export function attachRealtime(
         const row = games.performAction(gameParsed.data.gameId, user.id, actionParsed.data);
         broadcastGame(row.id);
         if (row.status === 'finished') broadcastLobby();
+        else bot.schedule(row.id);
         send(ack, { ok: true });
       } catch (error) {
         send(ack, { ok: false, error: errorMessage(error) });

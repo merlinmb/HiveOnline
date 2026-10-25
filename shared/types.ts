@@ -1,3 +1,5 @@
+import type { BotLevel } from './difficulty';
+
 export const COLORS = ['white', 'black'] as const;
 export type Color = (typeof COLORS)[number];
 
@@ -22,6 +24,8 @@ export interface GameSettings {
   expansions: boolean;
   /** Hive Ultimate / tournament rule: the Queen may not be placed on turn one. */
   tournamentOpening: boolean;
+  /** Difficulty the computer opponent was seated at, if any. */
+  botLevel?: BotLevel;
 }
 
 export interface PlacedTile {

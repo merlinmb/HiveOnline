@@ -150,6 +150,16 @@ Configuration is read from `config/app.json` (or `/config/app.json` in the conta
   "zeptomail": {
     "apiUrl": "https://api.zeptomail.eu/v1.1/email",
     "token": ""
+  },
+  "ollama": {
+    "enabled": true,
+    "url": "http://192.168.1.148:11434",
+    "model": "llama3.1:8b",
+    "timeoutMs": 12000,
+    "minDelayMs": 900
+  },
+  "bot": {
+    "difficulty": "auto"
   }
 }
 ```
@@ -163,6 +173,12 @@ Configuration is read from `config/app.json` (or `/config/app.json` in the conta
 | `smtp.*` | empty | Outgoing SMTP transport (Mailpit by default) |
 | `smtp.allowNoAuth` | `false` | Permit relays such as Mailpit that need no credentials |
 | `zeptomail.*` | ZeptoMail EU endpoint, empty token | HTTP API delivery when `mailMode` is `zeptomail` |
+| `ollama.enabled` | `true` | Use the Ollama language model for the computer opponent |
+| `ollama.url` | `http://localhost:11434` | Reachable Ollama base URL |
+| `ollama.model` | `llama3.1:8b` | Model the opponent asks for |
+| `ollama.timeoutMs` | `12000` | Move deadline; a timeout falls back to the heuristic |
+| `ollama.minDelayMs` | `900` | Cosmetic pause before the computer replies |
+| `bot.difficulty` | `auto` | `auto` scales with the player's rating; `novice`, `casual`, `skilled`, `expert` or `master` pins every new game |
 
 Supported environment variables:
 
@@ -176,6 +192,9 @@ Supported environment variables:
 | `MAIL_MODE` | `mailMode` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_ALLOW_NO_AUTH` | `smtp.*` |
 | `ZEPTOMAIL_API_URL`, `ZEPTOMAIL_TOKEN` | `zeptomail.*` |
+| `OLLAMA_ENABLED`, `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT_MS` | `ollama.*` |
+| `BOT_MIN_DELAY_MS` | `ollama.minDelayMs` |
+| `BOT_DIFFICULTY` | `bot.difficulty` |
 | `SESSION_DAYS` | session lifetime (default 30 days; guests always get 7) |
 
 ### E-mail and account verification
@@ -232,6 +251,44 @@ The same command works locally with `npm run verify-user -- --list`.
 - K-factor is 40 for the first 10 ranked games, 32 up to 30 games, then 24.
 - Only games where both players are verified count for rating.
 - Guests, unverified accounts and hot-seat games are casual.
+
+### Computer opponent
+
+The lobby offers **Play HiveMind**, a private single-player game against a built-in opponent. HiveMind always plays Onyx; you play Ivory. These games are always casual: they never affect Elo, never appear in the public lobby and are excluded from the live-table counters.
+
+The opponent is a hybrid:
+
+1. The rules engine generates every legal move and a one-ply heuristic ranks them (queen pressure, defence, beetle pins, opening timing).
+2. For the strongest-looking moves, a reply search checks whether the opponent can immediately surround your queen, so the bot blocks a one-move loss instead of chasing a shiny attack.
+3. The top candidates are sent to an [Ollama](https://ollama.com) chat model with a compact description of the board, hands and candidate list. The model may only pick a move that is close to the search's best; otherwise the search's choice stands.
+4. Any error, timeout, unreachable server or invalid answer falls back to the search move, so a game can never stall on the AI.
+
+**Difficulty scales with your rating.** New accounts start at 1200 (Skilled). The tiers are:
+
+| Rating | Level | What changes |
+| --- | --- | --- |
+| under 1100 | Novice | no reply search, frequent random moves |
+| 1100–1199 | Casual | four-move reply check, occasional mistakes |
+| 1200–1349 | Skilled | eight-move reply check, rare mistakes |
+| 1350–1499 | Expert | twelve-move reply check, model only allowed near-best moves |
+| 1500+ | Master | deepest reply check, almost no randomness |
+
+The lobby shows the level the next game will use and lets you pick a different one (Auto follows your rating). Set `BOT_DIFFICULTY` to a level to pin every new game server-wide, or leave it at `auto`. The selected level is stored with the game, so it stays put for the whole match.
+
+Computer games are independent: several people can play HiveMind at once, each in their own game. Only one table talks to the language model at a time — the others use the reply search instantly, which keeps every game moving even on a single Ollama instance.
+
+Point it at any Ollama server from the remote `.env`:
+
+```bash
+OLLAMA_URL=http://192.168.1.148:11434
+OLLAMA_MODEL=llama3.1:8b
+OLLAMA_TIMEOUT_MS=12000
+BOT_DIFFICULTY=auto
+```
+
+A warm model replies in well under a second. The server preloads the model at startup and whenever a computer game is created (`keep_alive` keeps it resident for 30 minutes). Cold model loads can take 30–60 seconds; raise `OLLAMA_TIMEOUT_MS` if your first reply keeps falling back to the heuristic. Set `OLLAMA_ENABLED=false` to skip the model entirely and use only the heuristic — the computer opponent still works.
+
+The model list is whatever your Ollama server has pulled (`ollama list`). Small instruction-following models such as `llama3.1:8b` or `qwen2.5-coder:7b` suit the numbered-choice prompt; reasoning-heavy models also work but reply more slowly.
 
 ### Appearance
 
@@ -291,7 +348,8 @@ Run `.\deploy.ps1` again from the development machine. The source in `site/` is 
 │   └── hive/engine.ts      # Legal moves, placement, victory, AI-free rules
 ├── server/
 │   ├── src/                # Express API, Socket.IO, SQLite, auth, Elo, mail
-│   ├── tests/              # Vitest rules tests
+│   │   └── bot.ts          # HiveMind: heuristic ranking + Ollama move choice
+│   ├── tests/              # Vitest rules and computer-opponent tests
 │   └── tools/              # verify-user CLI
 ├── src/                    # React 19 client
 │   ├── components/
@@ -305,7 +363,7 @@ Run `.\deploy.ps1` again from the development machine. The source in `site/` is 
 └── dev.ps1                 # PowerShell development launcher
 ```
 
-The rules engine is deliberately UI-free: the server resolves every action authoritatively, and the client uses the same engine to highlight legal moves. Unit tests live in `server/tests/engine.test.ts`.
+The rules engine is deliberately UI-free: the server resolves every action authoritatively, and the client uses the same engine to highlight legal moves. Unit tests live in `server/tests/engine.test.ts`; the computer opponent's ranking and prompt handling are covered by `server/tests/bot.test.ts`.
 
 ---
 
@@ -320,3 +378,12 @@ The rules engine is deliberately UI-free: the server resolves every action autho
 **Verification e-mail never arrives.** If `MAIL_MODE=smtp` with Mailpit, the message is waiting in the Mailpit inbox at <http://homebridge.local:8025> rather than a real mailbox. Otherwise check the container log for the generated link, verify the mail settings, then use the `verify-user` CLI if necessary.
 
 **Invite links point to the wrong host.** Set `publicUrl` (or `PUBLIC_URL`) to the address players actually use, including the port.
+
+**HiveMind never uses the language model.** Check the container log for `Ollama is not reachable` or `returned an unusable move`; the heuristic keeps playing either way. Verify the URL from inside the container:
+
+```bash
+docker compose -f /home/pi/portainer_data/hive/docker-compose.yml \
+  exec hive node -e "fetch((process.env.OLLAMA_URL||'') + '/api/tags').then(r => r.text()).then(console.log).catch(console.error)"
+```
+
+If the first move of a session falls back, the model was probably cold: raise `OLLAMA_TIMEOUT_MS` or pull a smaller model such as `gemma3:4b`.

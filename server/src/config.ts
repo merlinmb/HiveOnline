@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseBotDifficulty, type BotDifficulty } from '../../shared/difficulty';
 
 export interface SmtpConfig {
   host: string;
@@ -18,6 +19,14 @@ export interface ZeptoMailConfig {
   token: string;
 }
 
+export interface OllamaConfig {
+  enabled: boolean;
+  url: string;
+  model: string;
+  timeoutMs: number;
+  minDelayMs: number;
+}
+
 export interface AppConfig {
   publicUrl: string;
   port: number;
@@ -27,6 +36,11 @@ export interface AppConfig {
   mailMode: MailMode;
   smtp: SmtpConfig;
   zeptomail: ZeptoMailConfig;
+  ollama: OllamaConfig;
+  bot: {
+    /** `auto` scales with the human's rating; a level pins every new game. */
+    difficulty: BotDifficulty;
+  };
   registration: {
     allowGuests: boolean;
     requireVerifiedForRanked: boolean;
@@ -44,6 +58,12 @@ function envBool(value: string | undefined, fallback: boolean): boolean {
 function envBoolOptional(value: string | undefined): boolean | undefined {
   if (value === undefined) return undefined;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function envInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
 function readJson(file: string): Partial<AppConfig> | null {
@@ -79,6 +99,16 @@ export function loadConfig(): AppConfig {
         ? 'smtp'
         : 'log';
 
+  const ollamaUrl = (
+    process.env.OLLAMA_URL ??
+    fileConfig.ollama?.url ??
+    'http://localhost:11434'
+  ).trim();
+  const ollamaEnabled =
+    envBoolOptional(process.env.OLLAMA_ENABLED) ??
+    fileConfig.ollama?.enabled ??
+    ollamaUrl.length > 0;
+
   const config: AppConfig = {
     publicUrl:
       process.env.PUBLIC_URL ??
@@ -111,6 +141,31 @@ export function loadConfig(): AppConfig {
         'https://api.zeptomail.eu/v1.1/email',
       token: process.env.ZEPTOMAIL_TOKEN ?? fileConfig.zeptomail?.token ?? '',
     },
+    ollama: {
+      enabled: ollamaEnabled && ollamaUrl.length > 0,
+      url: ollamaUrl.replace(/\/+$/, ''),
+      model:
+        process.env.OLLAMA_MODEL ??
+        fileConfig.ollama?.model ??
+        'llama3.1:8b',
+      timeoutMs: envInt(
+        process.env.OLLAMA_TIMEOUT_MS,
+        fileConfig.ollama?.timeoutMs ?? 12_000,
+        1_000,
+        120_000,
+      ),
+      minDelayMs: envInt(
+        process.env.BOT_MIN_DELAY_MS,
+        fileConfig.ollama?.minDelayMs ?? 900,
+        0,
+        10_000,
+      ),
+    },
+    bot: {
+      difficulty: parseBotDifficulty(
+        process.env.BOT_DIFFICULTY ?? fileConfig.bot?.difficulty ?? 'auto',
+      ),
+    },
     registration: {
       allowGuests:
         envBoolOptional(process.env.ALLOW_GUESTS) ??
@@ -138,6 +193,8 @@ export function loadConfig(): AppConfig {
             registration: config.registration,
             smtp: config.smtp,
             zeptomail: { apiUrl: config.zeptomail.apiUrl, token: '' },
+            ollama: config.ollama,
+            bot: config.bot,
           },
           null,
           2,

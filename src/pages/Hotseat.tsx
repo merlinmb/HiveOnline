@@ -16,6 +16,7 @@ const EMPTY_USER = (id: string, username: string): User => ({
   email: null,
   rating: 1200,
   isGuest: false,
+  isBot: false,
   emailVerified: true,
   rankedGames: 0,
   wins: 0,
@@ -114,6 +115,9 @@ export default function Hotseat() {
   return (
     <div className="page game-page hotseat-page">
       <header className="hotseat-head">
+        <Link to="/lobby" className="back-link hotseat-back">
+          ← Lobby
+        </Link>
         <div>
           <div className="eyebrow">Same table, one screen</div>
           <h1>Pass &amp; play</h1>

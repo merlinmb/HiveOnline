@@ -3,6 +3,7 @@ import type { Action, Bug, Color, GameState, Position } from '../types';
 import { coordKey, hexCorners, hexToPixel, parseKey } from '../../shared/hex';
 import { heightAt, queenCoord, topAt } from '../../shared/hive/engine';
 import { BUG_META } from '../../shared/types';
+import { useMediaQuery } from '../lib/useMediaQuery';
 import { BoardTile, BOARD_HEX_SIZE, HexOutline, HexRing } from './HexTile';
 
 interface HiveBoardProps {
@@ -41,6 +42,11 @@ export function HiveBoard({
 }: HiveBoardProps) {
   const [hovered, setHovered] = useState<string | null>(null);
   const gradientId = `board-glow-${useId().replaceAll(':', '')}`;
+  const narrow = useMediaQuery('(max-width: 720px)');
+  const short = useMediaQuery('(max-height: 540px)');
+  // Narrow screens and short landscape tables each need their own framing so the
+  // tiles stay finger-sized. The desktop frame keeps more breathing room.
+  const frame = narrow ? 'phone' : short ? 'short' : 'wide';
 
   const cells = useMemo<PlacedCell[]>(
     () =>
@@ -118,17 +124,21 @@ export function HiveBoard({
 
   const viewBox = useMemo(() => {
     if (cells.length === 0) {
+      if (frame === 'phone') return { x: -205, y: -180, w: 410, h: 360 };
+      if (frame === 'short') return { x: -260, y: -173, w: 520, h: 346 };
       return { x: -390, y: -310, w: 780, h: 620 };
     }
     const xs = cells.map((cell) => cell.x);
     const ys = cells.map((cell) => cell.y);
-    const minX = Math.min(...xs) - 120;
-    const maxX = Math.max(...xs) + 120;
-    const minY = Math.min(...ys) - 110;
-    const maxY = Math.max(...ys) + 110;
-    let w = Math.max(600, maxX - minX);
-    let h = Math.max(500, maxY - minY);
-    const ratio = 1.42;
+    const padX = frame === 'phone' ? 76 : frame === 'short' ? 90 : 120;
+    const padY = frame === 'phone' ? 66 : frame === 'short' ? 70 : 110;
+    const minX = Math.min(...xs) - padX;
+    const maxX = Math.max(...xs) + padX;
+    const minY = Math.min(...ys) - padY;
+    const maxY = Math.max(...ys) + padY;
+    let w = Math.max(frame === 'phone' ? 380 : frame === 'short' ? 520 : 600, maxX - minX);
+    let h = Math.max(frame === 'phone' ? 332 : frame === 'short' ? 347 : 500, maxY - minY);
+    const ratio = frame === 'phone' ? 1.14 : frame === 'short' ? 1.5 : 1.42;
     if (w / h > ratio) {
       h = w / ratio;
     } else {
@@ -137,7 +147,7 @@ export function HiveBoard({
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
     return { x: cx - w / 2, y: cy - h / 2, w, h };
-  }, [cells]);
+  }, [cells, frame]);
 
   const selectedTile =
     selectedCoord && state.cells[coordKey(selectedCoord)]
@@ -247,10 +257,10 @@ export function HiveBoard({
               points={hexCorners(0, 0, BOARD_HEX_SIZE - 4)}
               className="start-hex"
             />
-            <text x={0} y={110} textAnchor="middle" className="board-empty-title">
+            <text x={0} y={frame === 'wide' ? 110 : 88} textAnchor="middle" className="board-empty-title">
               The hive begins here
             </text>
-            <text x={0} y={140} textAnchor="middle" className="board-empty-sub">
+            <text x={0} y={frame === 'wide' ? 140 : 118} textAnchor="middle" className="board-empty-sub">
               {canAct ? 'Place your first tile to open the game' : 'Waiting for the first tile'}
             </text>
           </>

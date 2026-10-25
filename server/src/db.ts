@@ -9,6 +9,7 @@ export interface UserRow {
   email: string | null;
   password_hash: string | null;
   is_guest: number;
+  is_bot: number;
   email_verified: number;
   rating: number;
   ranked_games: number;
@@ -26,6 +27,7 @@ export interface PublicUser {
   username: string;
   rating: number;
   isGuest: boolean;
+  isBot: boolean;
   emailVerified: boolean;
   rankedGames: number;
   wins: number;
@@ -68,6 +70,7 @@ export function openDb(dataDir: string): DB {
       email          TEXT UNIQUE COLLATE NOCASE,
       password_hash  TEXT,
       is_guest       INTEGER NOT NULL DEFAULT 0,
+      is_bot         INTEGER NOT NULL DEFAULT 0,
       email_verified INTEGER NOT NULL DEFAULT 0,
       rating         INTEGER NOT NULL DEFAULT 1200,
       ranked_games   INTEGER NOT NULL DEFAULT 0,
@@ -120,8 +123,47 @@ export function openDb(dataDir: string): DB {
   if (!userColumns.some((column) => column.name === 'theme')) {
     db.exec("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'light'");
   }
+  if (!userColumns.some((column) => column.name === 'is_bot')) {
+    db.exec('ALTER TABLE users ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0');
+  }
+
+  ensureBotUser(db);
 
   return db;
+}
+
+export const BOT_USER_ID = '00000000-0000-4000-8000-000000000001';
+export const BOT_USERNAME = 'HiveMind';
+
+/**
+ * The computer opponent is a real user row so games, chat and player lookups
+ * can reuse the same tables. It has no password and can never authenticate.
+ */
+export function ensureBotUser(db: DB): UserRow {
+  const existing = db.prepare('SELECT * FROM users WHERE is_bot = 1 LIMIT 1').get() as
+    | UserRow
+    | undefined;
+  if (existing) return existing;
+
+  const now = Date.now();
+  const insert = db.prepare(
+    `INSERT INTO users (id, username, email, password_hash, is_guest, is_bot, email_verified, rating, theme, created_at, last_seen)
+     VALUES (?, ?, NULL, NULL, 0, 1, 0, 1200, 'light', ?, ?)`,
+  );
+
+  for (const username of [BOT_USERNAME, `${BOT_USERNAME}AI`]) {
+    try {
+      insert.run(BOT_USER_ID, username, now, now);
+      return getUserById(db, BOT_USER_ID) as UserRow;
+    } catch (error) {
+      if (!(error as Error).message.includes('UNIQUE')) throw error;
+    }
+  }
+  throw new Error('Could not create the computer opponent account.');
+}
+
+export function getBotUser(db: DB): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE is_bot = 1 LIMIT 1').get() as UserRow | undefined;
 }
 
 export function getUserById(db: DB, id: string): UserRow | undefined {
@@ -150,6 +192,7 @@ export function toPublicUser(row: UserRow): PublicUser {
     username: row.username,
     rating: row.rating,
     isGuest: row.is_guest === 1,
+    isBot: row.is_bot === 1,
     emailVerified: row.email_verified === 1,
     rankedGames: row.ranked_games,
     wins: row.wins,

@@ -8,6 +8,7 @@ import {
   ORIGIN,
   parseKey,
 } from '../hex';
+import { isBotLevel } from '../difficulty';
 import {
   BASE_BUGS,
   BUGS,
@@ -50,6 +51,7 @@ export function createGame(settings: Partial<GameSettings> = {}): GameState {
     expansions: Boolean(settings.expansions),
     tournamentOpening: Boolean(settings.tournamentOpening),
   };
+  if (isBotLevel(settings.botLevel)) resolved.botLevel = settings.botLevel;
   return {
     cells: {},
     hands: {

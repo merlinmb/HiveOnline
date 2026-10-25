@@ -1,4 +1,5 @@
 import type { Action, Bug, Color, FinishReason, GameSettings, GameState } from '../shared/types';
+import type { BotDifficulty, BotLevel } from '../shared/difficulty';
 
 export interface User {
   id: string;
@@ -6,6 +7,7 @@ export interface User {
   email?: string | null;
   rating: number;
   isGuest: boolean;
+  isBot: boolean;
   emailVerified: boolean;
   rankedGames: number;
   wins: number;
@@ -20,6 +22,8 @@ export interface GameSummary {
   status: 'waiting' | 'active' | 'finished' | 'abandoned';
   ranked: boolean;
   rankedPotential: boolean;
+  computer: boolean;
+  botLevel: BotLevel | null;
   visibility: 'public' | 'private';
   createdAt: number;
   updatedAt: number;
@@ -69,6 +73,14 @@ export interface MetaInfo {
   mailConfigured: boolean;
   publicUrl: string;
   online: number;
+  computer: {
+    enabled: boolean;
+    name: string;
+    ai: boolean;
+    model: string | null;
+    /** `auto` scales with the player's rating; a level is pinned server-side. */
+    difficulty: BotDifficulty;
+  };
 }
 
 export type Position = { kind: 'bug'; bug: Bug } | { kind: 'cell'; coord: { q: number; r: number } } | null;

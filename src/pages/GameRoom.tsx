@@ -8,6 +8,7 @@ import { HandRack } from '../components/HandRack';
 import { HiveBoard } from '../components/HiveBoard';
 import { LogoMark } from '../components/LogoMark';
 import { MoveLog } from '../components/MoveLog';
+import { PlayerAvatar } from '../components/PlayerAvatar';
 import { PlayerCard } from '../components/PlayerCard';
 import { Badge, CopyButton, EmptyState, Modal, Spinner } from '../components/Ui';
 import { formatRelative } from '../lib/format';
@@ -21,6 +22,7 @@ import type {
   Position,
 } from '../types';
 import { BUG_META } from '../../shared/types';
+import { levelLabel } from '../../shared/difficulty';
 
 function colorName(color: Color): string {
   return color === 'white' ? 'Ivory' : 'Onyx';
@@ -31,11 +33,24 @@ function reasonText(reason: GameView['finishReason']): string {
     case 'queen':
       return 'The queen was surrounded on all six sides.';
     case 'stalemate':
-      return 'Both players passed in succession — the hive is deadlocked.';
+      return 'Both players passed in succession - the hive is deadlocked.';
     case 'resign':
       return 'A resignation ended the game.';
     default:
       return 'The game is complete.';
+  }
+}
+
+function finishLabel(reason: GameView['finishReason']): string {
+  switch (reason) {
+    case 'queen':
+      return 'Queen surrounded';
+    case 'stalemate':
+      return 'Stalemate';
+    case 'resign':
+      return 'Resignation';
+    default:
+      return 'Complete';
   }
 }
 
@@ -170,8 +185,6 @@ export default function GameRoom() {
   const myTurn =
     Boolean(game) && game?.status === 'active' && myColor !== null && game?.state.turn === myColor;
   const canAct = myTurn && !moveBusy;
-  const topColor: Color = 'black';
-  const bottomColor: Color = 'white';
 
   const opponent =
     myColor === 'white' ? game?.players.black : myColor === 'black' ? game?.players.white : null;
@@ -240,9 +253,11 @@ export default function GameRoom() {
     setNewGameBusy(true);
     try {
       const result = await api.createGame({
-        visibility: 'public',
+        visibility: game.computer ? 'private' : 'public',
         expansions: game.settings.expansions,
         tournamentOpening: game.settings.tournamentOpening,
+        opponent: game.computer ? 'computer' : 'human',
+        difficulty: game.botLevel ?? 'auto',
       });
       navigate(`/g/${result.game.code}`);
     } catch (caught) {
@@ -399,6 +414,15 @@ export default function GameRoom() {
     game.state.turn === 'white' ? game.players.white : game.players.black;
   const currentHand = myColor ? game.state.hands[myColor] : game.state.hands[game.state.turn];
   const handColor = myColor ?? game.state.turn;
+  // The rack and your identity card live on the left, the rival at the top of
+  // the right-hand column.
+  const selfColor: Color = myColor ?? 'white';
+  const rivalColor: Color = selfColor === 'white' ? 'black' : 'white';
+  const botPlayer = game.players.white?.isBot
+    ? game.players.white
+    : game.players.black?.isBot
+      ? game.players.black
+      : null;
 
   const resultTitle = game.winner
     ? myColor === null
@@ -409,10 +433,16 @@ export default function GameRoom() {
     : 'A draw';
   const resultSubline = game.winner
     ? myColor === null
-      ? `${game.players[game.winner]?.username ?? colorName(game.winner)} closes the hive.`
+      ? game.finishReason === 'resign'
+        ? `${game.players[game.winner]?.username ?? colorName(game.winner)} takes the hive by resignation.`
+        : `${game.players[game.winner]?.username ?? colorName(game.winner)} closes the hive.`
       : game.winner === myColor
-        ? 'You closed the hive. Every side of their queen is sealed.'
-        : 'Your queen is surrounded. The hive belongs to your rival this time.'
+        ? game.finishReason === 'resign'
+          ? 'Your rival resigned. The hive is yours.'
+          : 'You closed the hive. Every side of their queen is sealed.'
+        : game.finishReason === 'resign'
+          ? 'You resigned. The hive belongs to your rival this time.'
+          : 'Your queen is surrounded. The hive belongs to your rival this time.'
     : 'Neither queen could be surrounded before the hive locked up.';
 
   return (
@@ -424,11 +454,32 @@ export default function GameRoom() {
         <div className="game-title">
           <span className="game-title-label">Table</span>
           <span className="game-code">#{game.code}</span>
-          <Badge tone={game.status === 'finished' ? 'muted' : 'green'}>{statusLabel}</Badge>
-          <Badge tone={game.ranked ? 'gold' : 'muted'}>{game.ranked ? 'Ranked' : 'Casual'}</Badge>
-          {game.settings.expansions ? <Badge tone="blue">Expanded</Badge> : null}
-          {game.settings.tournamentOpening ? <Badge tone="green">Tournament</Badge> : null}
-          {spectator ? <Badge tone="muted">Spectating</Badge> : null}
+          <Badge tone={game.status === 'finished' ? 'muted' : 'green'} className="game-badge-status">
+            {statusLabel}
+          </Badge>
+          <Badge tone={game.ranked ? 'gold' : 'muted'} className="game-badge-mode">
+            {game.ranked ? 'Ranked' : 'Casual'}
+          </Badge>
+          {game.computer ? (
+            <Badge tone="blue" className="game-badge-optional">
+              vs {game.players.black?.username ?? 'Computer'}
+            </Badge>
+          ) : null}
+          {game.settings.expansions ? (
+            <Badge tone="blue" className="game-badge-optional">
+              Expanded
+            </Badge>
+          ) : null}
+          {game.settings.tournamentOpening ? (
+            <Badge tone="green" className="game-badge-optional">
+              Tournament
+            </Badge>
+          ) : null}
+          {spectator ? (
+            <Badge tone="muted" className="game-badge-mode">
+              Spectating
+            </Badge>
+          ) : null}
         </div>
         <div className="game-top-actions">
           <span className={`connection-pill ${connected ? 'is-on' : ''}`}>
@@ -439,18 +490,123 @@ export default function GameRoom() {
         </div>
       </div>
 
+      <div className="mobile-match" aria-label="Players at this table">
+        <div
+          className={`mobile-player mobile-player-${selfColor} ${
+            game.status === 'active' && game.state.turn === selfColor ? 'is-active' : ''
+          }`}
+        >
+          <span className={`color-chip color-chip-${selfColor}`} />
+          {game.players[selfColor] ? (
+            <PlayerAvatar
+              name={game.players[selfColor]!.username}
+              size={30}
+              isGuest={game.players[selfColor]!.isGuest}
+              isBot={game.players[selfColor]!.isBot}
+            />
+          ) : (
+            <span className="avatar avatar-empty" aria-hidden="true">
+              ?
+            </span>
+          )}
+          <div className="mobile-player-copy">
+            <strong>
+              <span className="mobile-player-name">
+                {game.players[selfColor]?.username ?? 'Empty seat'}
+              </span>
+            </strong>
+            <span>
+              {game.players[selfColor]?.isBot
+                ? `Computer${game.botLevel ? ` · ${levelLabel(game.botLevel)}` : ''}`
+                : game.players[selfColor]
+                  ? `${game.players[selfColor]!.rating}${
+                      game.players[selfColor]!.isGuest ? ' · Guest' : ' rating'
+                    }`
+                  : colorName(selfColor)}
+              {myColor === selfColor ? <span className="mobile-you">You</span> : null}
+            </span>
+          </div>
+          {game.status === 'active' && game.state.turn === selfColor ? (
+            <span className="turn-dot is-active" aria-label="To move" />
+          ) : null}
+        </div>
+
+        <div
+          className={`mobile-player mobile-player-${rivalColor} is-rival ${
+            game.status === 'active' && game.state.turn === rivalColor ? 'is-active' : ''
+          }`}
+        >
+          <span className={`color-chip color-chip-${rivalColor}`} />
+          {game.players[rivalColor] ? (
+            <PlayerAvatar
+              name={game.players[rivalColor]!.username}
+              size={30}
+              isGuest={game.players[rivalColor]!.isGuest}
+              isBot={game.players[rivalColor]!.isBot}
+            />
+          ) : (
+            <span className="avatar avatar-empty" aria-hidden="true">
+              ?
+            </span>
+          )}
+          <div className="mobile-player-copy">
+            <strong>
+              <span className="mobile-player-name">
+                {game.players[rivalColor]?.username ?? 'Waiting'}
+              </span>
+            </strong>
+            <span>
+              {game.players[rivalColor]?.isBot
+                ? `Computer${game.botLevel ? ` · ${levelLabel(game.botLevel)}` : ''}`
+                : game.players[rivalColor]
+                  ? `${game.players[rivalColor]!.rating}${
+                      game.players[rivalColor]!.isGuest ? ' · Guest' : ' rating'
+                    }`
+                  : colorName(rivalColor)}
+            </span>
+          </div>
+          {game.status === 'active' && game.state.turn === rivalColor ? (
+            <span className="turn-dot is-active" aria-label="To move" />
+          ) : null}
+        </div>
+      </div>
+
       <div className="game-layout">
-        <div className="board-column">
-          <PlayerCard
-            player={game.players[topColor]}
-            color={topColor}
-            isYou={myColor === topColor}
-            active={game.status === 'active' && game.state.turn === topColor}
-            queenPlaced={game.state.queenPlaced[topColor]}
-            hand={game.state.hands[topColor]}
-            winner={game.status === 'finished' && game.state.winner === topColor}
+        <div className="hand-column">
+          <HandRack
+            hand={currentHand}
+            color={handColor}
+            selected={selection?.kind === 'bug' ? selection.bug : null}
+            onSelect={(bug) =>
+              setSelection((current) =>
+                current?.kind === 'bug' && current.bug === bug
+                  ? null
+                  : { kind: 'bug', bug },
+              )
+            }
+            disabled={!canAct}
+            label={
+              myColor
+                ? myTurn
+                  ? 'Your tiles — choose one'
+                  : 'Your tiles'
+                : `${colorName(handColor)} tiles`
+            }
           />
 
+          <PlayerCard
+            player={game.players[selfColor]}
+            color={selfColor}
+            isYou={myColor === selfColor}
+            active={game.status === 'active' && game.state.turn === selfColor}
+            queenPlaced={game.state.queenPlaced[selfColor]}
+            hand={game.state.hands[selfColor]}
+            winner={game.status === 'finished' && game.state.winner === selfColor}
+            botLevel={game.botLevel}
+          />
+        </div>
+
+        <div className="board-column">
           <div className={`board-panel ${myTurn ? 'is-your-turn' : ''}`}>
             <div className={`board-banner ${myTurn ? 'is-live' : ''}`}>
               {game.status === 'finished' ? (
@@ -512,37 +668,6 @@ export default function GameRoom() {
               </div>
             ) : null}
           </div>
-
-          <HandRack
-            hand={currentHand}
-            color={handColor}
-            selected={selection?.kind === 'bug' ? selection.bug : null}
-            onSelect={(bug) =>
-              setSelection((current) =>
-                current?.kind === 'bug' && current.bug === bug
-                  ? null
-                  : { kind: 'bug', bug },
-              )
-            }
-            disabled={!canAct}
-            label={
-              myColor
-                ? myTurn
-                  ? 'Your tiles — choose one'
-                  : 'Your tiles'
-                : `${colorName(handColor)} tiles`
-            }
-          />
-
-          <PlayerCard
-            player={game.players[bottomColor]}
-            color={bottomColor}
-            isYou={myColor === bottomColor}
-            active={game.status === 'active' && game.state.turn === bottomColor}
-            queenPlaced={game.state.queenPlaced[bottomColor]}
-            hand={game.state.hands[bottomColor]}
-            winner={game.status === 'finished' && game.state.winner === bottomColor}
-          />
         </div>
 
         <aside className="game-side">
@@ -617,6 +742,17 @@ export default function GameRoom() {
             </div>
           </div>
 
+          <PlayerCard
+            player={game.players[rivalColor]}
+            color={rivalColor}
+            isYou={myColor === rivalColor}
+            active={game.status === 'active' && game.state.turn === rivalColor}
+            queenPlaced={game.state.queenPlaced[rivalColor]}
+            hand={game.state.hands[rivalColor]}
+            winner={game.status === 'finished' && game.state.winner === rivalColor}
+            botLevel={game.botLevel}
+          />
+
           <div className="side-tabs" role="tablist" aria-label="Table panels">
             <button
               type="button"
@@ -680,6 +816,15 @@ export default function GameRoom() {
                 <strong>Elo is on the line</strong>
               </div>
             ) : null}
+            {game.computer ? (
+              <div className="game-fact game-fact-wide">
+                <span>Opponent</span>
+                <strong>
+                  {botPlayer?.username ?? 'Computer'}
+                  {game.botLevel ? ` · ${levelLabel(game.botLevel)}` : ''} · casual
+                </strong>
+              </div>
+            ) : null}
           </div>
         </aside>
       </div>
@@ -737,7 +882,7 @@ export default function GameRoom() {
                 onClick={() => void openNewTable()}
                 disabled={newGameBusy}
               >
-                {newGameBusy ? 'Opening…' : 'Open a new table'}
+                {newGameBusy ? 'Opening…' : game.computer ? 'Play HiveMind again' : 'Open a new table'}
               </button>
             ) : (
               <Link to="/lobby" className="btn btn-primary">
@@ -771,7 +916,7 @@ export default function GameRoom() {
           </div>
           <div>
             <span>Finish</span>
-            <strong>{game.finishReason ?? '—'}</strong>
+            <strong>{finishLabel(game.finishReason)}</strong>
           </div>
         </div>
         {game.ranked && myColor ? (

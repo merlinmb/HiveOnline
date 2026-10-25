@@ -5,6 +5,7 @@ import type {
   MetaInfo,
   User,
 } from './types';
+import type { BotDifficulty } from '../shared/difficulty';
 
 export class ApiError extends Error {
   constructor(
@@ -76,6 +77,8 @@ export const api = {
     visibility?: 'public' | 'private';
     expansions?: boolean;
     tournamentOpening?: boolean;
+    opponent?: 'human' | 'computer';
+    difficulty?: BotDifficulty;
   }) => post<{ game: GameView }>('/games', input),
   joinGame: (code: string) => post<{ game: GameView }>('/games/join', { code }),
   quickMatch: (input: { expansions?: boolean; tournamentOpening?: boolean }) =>

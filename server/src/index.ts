@@ -8,7 +8,8 @@ import { openDb } from './db';
 import { cleanupAuth, optionalAuth } from './auth';
 import { Mailer } from './mailer';
 import { GameService } from './games';
-import { attachRealtime } from './realtime';
+import { ComputerPlayer } from './bot';
+import { attachRealtime, type RealtimeHandle } from './realtime';
 import { createApiRouter } from './routes';
 import { HttpError } from './errors';
 import { log } from './logger';
@@ -18,6 +19,14 @@ const config = loadConfig();
 const db = openDb(config.dataDir);
 const mailer = new Mailer(config);
 const games = new GameService(db, config);
+
+// The computer opponent needs the realtime handle to broadcast its moves, but
+// the handle is created after it. Route notifications through this holder.
+const liveHandle: { current: RealtimeHandle | null } = { current: null };
+const bot = new ComputerPlayer(db, config, games, (gameId, finished) => {
+  liveHandle.current?.broadcastGame(gameId);
+  if (finished) liveHandle.current?.broadcastLobby();
+});
 
 const app = express();
 app.disable('x-powered-by');
@@ -47,9 +56,10 @@ const io = new SocketServer(server, {
   pingTimeout: 20_000,
 });
 
-const realtime = attachRealtime(io, db, config, games);
+const realtime = attachRealtime(io, db, config, games, bot);
+liveHandle.current = realtime;
 
-app.use('/api', optionalAuth(db), createApiRouter({ db, config, mailer, games, realtime }));
+app.use('/api', optionalAuth(db), createApiRouter({ db, config, mailer, games, realtime, bot }));
 
 const clientDir = path.resolve(process.env.CLIENT_DIR ?? path.join(process.cwd(), 'dist', 'client'));
 const indexFile = path.join(clientDir, 'index.html');
@@ -118,7 +128,13 @@ server.listen(config.port, config.host, () => {
   log.info(`Hive Online listening on http://${config.host}:${config.port}`);
   log.info(`Public URL: ${config.publicUrl}`);
   log.info(`Data directory: ${config.dataDir}`);
+  log.info(
+    config.ollama.enabled
+      ? `Computer opponent: ${config.ollama.model} via ${config.ollama.url} (heuristic fallback ready).`
+      : 'Computer opponent: built-in heuristic (Ollama disabled).',
+  );
   void mailer.testConnection();
+  bot.start();
 });
 
 async function shutdown(signal: string) {

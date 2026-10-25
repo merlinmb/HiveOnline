@@ -159,6 +159,12 @@ try {
     SMTP_ALLOW_NO_AUTH = "true"
     SMTP_FROM          = "admin@parkm8.com"
     ZEPTOMAIL_API_URL  = "https://api.zeptomail.eu/v1.1/email"
+    OLLAMA_ENABLED     = "true"
+    OLLAMA_URL         = "http://192.168.1.148:11434"
+    OLLAMA_MODEL       = "llama3.1:8b"
+    OLLAMA_TIMEOUT_MS  = "12000"
+    BOT_MIN_DELAY_MS   = "900"
+    BOT_DIFFICULTY     = "auto"
   }
   foreach ($key in $managedDefaults.Keys) {
     if ($deploymentOwned -contains $key -or -not $values.Contains($key)) {

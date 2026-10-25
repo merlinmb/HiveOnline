@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AppConfig } from './config';
 import {
+  getBotUser,
   getUserById,
   toPublicUser,
   type DB,
@@ -22,6 +23,11 @@ import type {
   GameSettings,
   GameState,
 } from '../../shared/types';
+import {
+  levelForRating,
+  type BotDifficulty,
+  type BotLevel,
+} from '../../shared/difficulty';
 import { rateGame } from './elo';
 import { log } from './logger';
 
@@ -31,6 +37,10 @@ export interface GameSummary {
   status: GameRow['status'];
   ranked: boolean;
   rankedPotential: boolean;
+  /** True when one of the seats is the built-in computer opponent. */
+  computer: boolean;
+  /** Difficulty the computer is seated at (null for human games). */
+  botLevel: BotLevel | null;
   visibility: GameRow['visibility'];
   createdAt: number;
   updatedAt: number;
@@ -57,6 +67,10 @@ export interface CreateGameOptions {
   visibility?: 'public' | 'private';
   expansions?: boolean;
   tournamentOpening?: boolean;
+  /** `computer` seats HiveMind as Onyx in a private, casual game. */
+  opponent?: 'human' | 'computer';
+  /** `auto` follows the host's rating; a level pins the game. */
+  difficulty?: BotDifficulty;
 }
 
 function stateOf(row: GameRow): GameState {
@@ -86,7 +100,7 @@ export class GameService {
   ) {}
 
   rankedEligible(user: UserRow): boolean {
-    if (user.is_guest === 1) return false;
+    if (user.is_guest === 1 || user.is_bot === 1) return false;
     if (this.config.registration.requireVerifiedForRanked && user.email_verified !== 1) {
       return false;
     }
@@ -105,12 +119,20 @@ export class GameService {
   private summaryFor(row: GameRow): GameSummary {
     const state = stateOf(row);
     const host = getUserById(this.db, row.host_id);
+    const guest = row.guest_id ? getUserById(this.db, row.guest_id) : null;
+    const computer = Boolean(host?.is_bot === 1 || guest?.is_bot === 1);
+    const human = host?.is_bot === 1 ? guest : guest?.is_bot === 1 ? host : null;
+    const botLevel = computer
+      ? state.settings.botLevel ?? levelForRating(human?.rating ?? 1200)
+      : null;
     return {
       id: row.id,
       code: row.code,
       status: row.status,
       ranked: row.ranked === 1,
-      rankedPotential: host ? this.rankedEligible(host) : false,
+      rankedPotential: guest?.is_bot === 1 ? false : host ? this.rankedEligible(host) : false,
+      computer,
+      botLevel,
       visibility: row.visibility,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -151,35 +173,64 @@ export class GameService {
     return this.view(row);
   }
 
+  /** Resolve the seated difficulty, honouring the server override first. */
+  private botLevelFor(user: UserRow, requested?: BotDifficulty): BotLevel {
+    if (this.config.bot.difficulty !== 'auto') return this.config.bot.difficulty;
+    if (requested && requested !== 'auto') return requested;
+    return levelForRating(user.rating);
+  }
+
   createGame(user: UserRow, options: CreateGameOptions = {}): GameView {
+    const versusComputer = options.opponent === 'computer';
+    const botLevel = versusComputer ? this.botLevelFor(user, options.difficulty) : null;
     const settings: GameSettings = {
       expansions: Boolean(options.expansions),
       tournamentOpening: Boolean(options.tournamentOpening),
+      ...(botLevel ? { botLevel } : {}),
     };
     const state = createGame(settings);
     const now = Date.now();
     const id = randomUUID();
+    const bot = versusComputer ? getBotUser(this.db) : null;
+    if (versusComputer && !bot) {
+      throw new HttpError(503, 'The computer opponent is not available on this server.');
+    }
 
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const code = makeCode();
       try {
-        this.db
-          .prepare(
-            `INSERT INTO games (id, code, host_id, guest_id, status, ranked, visibility, state, created_at, updated_at)
-             VALUES (?, ?, ?, NULL, 'waiting', 0, ?, ?, ?, ?)`,
-          )
-          .run(
-            id,
-            code,
-            user.id,
-            options.visibility === 'private' ? 'private' : 'public',
-            JSON.stringify(state),
-            now,
-            now,
-          );
+        if (versusComputer && bot) {
+          // HiveMind always takes Onyx. Computer games are private and casual
+          // so they never appear in the lobby or touch the rated ladder.
+          this.db
+            .prepare(
+              `INSERT INTO games (id, code, host_id, guest_id, status, ranked, visibility, state, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'active', 0, 'private', ?, ?, ?)`,
+            )
+            .run(id, code, user.id, bot.id, JSON.stringify(state), now, now);
+        } else {
+          this.db
+            .prepare(
+              `INSERT INTO games (id, code, host_id, guest_id, status, ranked, visibility, state, created_at, updated_at)
+               VALUES (?, ?, ?, NULL, 'waiting', 0, ?, ?, ?, ?)`,
+            )
+            .run(
+              id,
+              code,
+              user.id,
+              options.visibility === 'private' ? 'private' : 'public',
+              JSON.stringify(state),
+              now,
+              now,
+            );
+        }
         const row = this.getRowById(id);
         if (!row) throw new HttpError(500, 'Could not create the game.');
-        log.info(`Game ${code} created by ${user.username} (${row.visibility}).`);
+        log.info(
+          versusComputer
+            ? `Game ${code} created by ${user.username} against the computer (${botLevel ?? 'auto'}).`
+            : `Game ${code} created by ${user.username} (${row.visibility}).`,
+        );
         return this.view(row);
       } catch (error) {
         if (!(error as Error).message.includes('UNIQUE')) throw error;
@@ -225,6 +276,7 @@ export class GameService {
       .prepare(
         `SELECT * FROM games
          WHERE status = 'waiting' AND visibility = 'public' AND host_id != ? AND guest_id IS NULL
+           AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
          ORDER BY created_at ASC LIMIT 1`,
       )
       .get(user.id) as GameRow | undefined;
@@ -238,6 +290,7 @@ export class GameService {
       .prepare(
         `SELECT * FROM games
          WHERE status = 'waiting' AND visibility = 'public' AND guest_id IS NULL
+           AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
            AND (? IS NULL OR host_id != ?)
          ORDER BY created_at DESC LIMIT 24`,
       )
@@ -247,19 +300,29 @@ export class GameService {
       .prepare(
         `SELECT * FROM games
          WHERE status = 'active' AND visibility = 'public'
+           AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
+           AND (guest_id IS NULL OR guest_id NOT IN (SELECT id FROM users WHERE is_bot = 1))
          ORDER BY updated_at DESC LIMIT 24`,
       )
       .all() as GameRow[];
 
     const waiting = (
-      this.db.prepare("SELECT COUNT(*) AS n FROM games WHERE status = 'waiting'").get() as {
-        n: number;
-      }
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM games WHERE status = 'waiting'
+             AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
+             AND (guest_id IS NULL OR guest_id NOT IN (SELECT id FROM users WHERE is_bot = 1))`,
+        )
+        .get() as { n: number }
     ).n;
     const active = (
-      this.db.prepare("SELECT COUNT(*) AS n FROM games WHERE status = 'active'").get() as {
-        n: number;
-      }
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM games WHERE status = 'active'
+             AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
+             AND (guest_id IS NULL OR guest_id NOT IN (SELECT id FROM users WHERE is_bot = 1))`,
+        )
+        .get() as { n: number }
     ).n;
 
     return {

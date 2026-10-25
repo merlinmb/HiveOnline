@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BUGS } from '../../shared/types';
+import { BOT_LEVELS } from '../../shared/difficulty';
 
 export const registerSchema = z.object({
   username: z
@@ -35,6 +36,8 @@ export const createGameSchema = z.object({
   visibility: z.enum(['public', 'private']).optional(),
   expansions: z.boolean().optional(),
   tournamentOpening: z.boolean().optional(),
+  opponent: z.enum(['human', 'computer']).optional(),
+  difficulty: z.enum(['auto', ...BOT_LEVELS]).optional(),
 });
 
 export const joinGameSchema = z.object({
@@ -79,6 +82,7 @@ export const RESERVED_USERNAMES = new Set([
   'system',
   'hive',
   'hiveonline',
+  'hivemind',
   'moderator',
   'support',
   'root',

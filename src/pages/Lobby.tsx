@@ -9,6 +9,13 @@ import { useSocket } from '../socket';
 import { useToast } from '../toast';
 import { formatRelative, plural } from '../lib/format';
 import type { Color, GameSummary, LobbySnapshot } from '../types';
+import {
+  BOT_LEVELS,
+  levelForRating,
+  levelLabel,
+  tuningFor,
+  type BotDifficulty,
+} from '../../shared/difficulty';
 
 function myColor(game: GameSummary, userId: string): Color | null {
   if (game.players.white?.id === userId) return 'white';
@@ -22,6 +29,10 @@ function GameSettingsBadges({ game }: { game: GameSummary }) {
       <Badge tone={game.ranked ? 'gold' : game.rankedPotential ? 'green' : 'muted'}>
         {game.ranked ? 'Ranked' : game.rankedPotential ? 'Ranked if verified' : 'Casual'}
       </Badge>
+      {game.computer ? <Badge tone="blue">vs Computer</Badge> : null}
+      {game.computer && game.botLevel ? (
+        <Badge tone="gold">{levelLabel(game.botLevel)}</Badge>
+      ) : null}
       {game.settings.expansions ? <Badge tone="blue">Expanded</Badge> : null}
       {game.settings.tournamentOpening ? <Badge tone="green">Tournament</Badge> : null}
       {game.visibility === 'private' ? <Badge tone="muted">Private</Badge> : null}
@@ -130,13 +141,18 @@ function MyGameRow({ game, userId }: { game: GameSummary; userId: string }) {
     <Link to={`/g/${game.code}`} className={`my-game-row ${myTurn ? 'is-your-turn' : ''}`}>
       <span className={`my-game-color color-chip color-chip-${color ?? 'white'}`} />
       <div className="my-game-copy">
-        <strong>{opponent ? opponent.username : 'Waiting for a challenger'}</strong>
+        <strong>
+          {opponent ? opponent.username : 'Waiting for a challenger'}
+          {game.computer && game.botLevel ? ` · ${levelLabel(game.botLevel)}` : ''}
+        </strong>
         <span>
           {game.status === 'waiting'
             ? 'Open table · share the code'
             : myTurn
               ? 'Your move'
-              : `${game.turn === 'white' ? 'Ivory' : 'Onyx'} to move`}
+              : game.computer
+                ? `${opponent?.username ?? 'Computer'} is thinking`
+                : `${game.turn === 'white' ? 'Ivory' : 'Onyx'} to move`}
         </span>
       </div>
       <span className="my-game-code">#{game.code}</span>
@@ -157,7 +173,8 @@ function ResultRow({ game, userId }: { game: GameSummary; userId: string }) {
       <div className="result-copy">
         <strong>vs {opponent?.username ?? 'Unknown'}</strong>
         <span>
-          {game.ranked ? 'Ranked' : 'Casual'} · {formatRelative(game.updatedAt)}
+          {game.ranked ? 'Ranked' : game.computer ? 'Computer · casual' : 'Casual'} ·{' '}
+          {formatRelative(game.updatedAt)}
         </span>
       </div>
       <span className="result-code">#{game.code}</span>
@@ -167,7 +184,7 @@ function ResultRow({ game, userId }: { game: GameSummary; userId: string }) {
 
 export default function Lobby() {
   const { user } = useAuth();
-  const { lobbyVersion, connected, online } = useSocket();
+  const { lobbyVersion, connected, online, meta } = useSocket();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -180,12 +197,14 @@ export default function Lobby() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [joining, setJoining] = useState<string | null>(null);
   const [quickBusy, setQuickBusy] = useState(false);
+  const [computerBusy, setComputerBusy] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [joinBusy, setJoinBusy] = useState(false);
   const [expansions, setExpansions] = useState(false);
   const [tournamentOpening, setTournamentOpening] = useState(false);
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [difficulty, setDifficulty] = useState<BotDifficulty>('auto');
 
   const load = useCallback(
     async (silent = false) => {
@@ -263,11 +282,33 @@ export default function Lobby() {
     }
   };
 
+  const playComputer = async () => {
+    setComputerBusy(true);
+    try {
+      const result = await api.createGame({
+        opponent: 'computer',
+        expansions,
+        tournamentOpening,
+        difficulty,
+      });
+      navigate(`/g/${result.game.code}`);
+    } catch (error) {
+      toast(error instanceof ApiError ? error.message : 'Could not start a computer game.', 'error');
+    } finally {
+      setComputerBusy(false);
+    }
+  };
+
   const openCount = lobby?.open.length ?? 0;
   const activeGames = mine?.active ?? [];
   const yourTurn = activeGames.filter(
     (game) => game.status === 'active' && game.turn === myColor(game, user.id),
   ).length;
+
+  const autoLevel = levelForRating(user.rating);
+  const serverDifficulty = meta?.computer.difficulty ?? 'auto';
+  const seatedLevel =
+    serverDifficulty !== 'auto' ? serverDifficulty : difficulty === 'auto' ? autoLevel : difficulty;
 
   return (
     <div className="page lobby-page">
@@ -367,6 +408,51 @@ export default function Lobby() {
               {quickBusy ? 'Matching…' : 'Find a game'}
             </button>
           </div>
+
+          {meta?.computer.enabled ? (
+            <div className="start-quick start-computer">
+              <div>
+                <strong>Play {meta.computer.name}</strong>
+                <span>
+                  {meta.computer.ai && meta.computer.model
+                    ? `A private casual game against the house AI, powered by ${meta.computer.model}.`
+                    : 'A private casual game against the built-in computer opponent.'}{' '}
+                  Seated at <b>{levelLabel(seatedLevel)}</b>
+                  {serverDifficulty === 'auto' && difficulty === 'auto'
+                    ? ` to match your ${user.rating} rating.`
+                    : '.'}
+                </span>
+                {serverDifficulty === 'auto' ? (
+                  <label className="difficulty-pick">
+                    <span>Difficulty</span>
+                    <select
+                      value={difficulty}
+                      onChange={(event) =>
+                        setDifficulty(event.target.value as BotDifficulty)
+                      }
+                      aria-label="Computer difficulty"
+                    >
+                      <option value="auto">Auto · {levelLabel(autoLevel)}</option>
+                      {BOT_LEVELS.map((level) => (
+                        <option key={level} value={level}>
+                          {levelLabel(level)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                <span className="difficulty-hint">{tuningFor(seatedLevel).description}</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => void playComputer()}
+                disabled={computerBusy}
+              >
+                {computerBusy ? 'Waking…' : 'Play computer'}
+              </button>
+            </div>
+          ) : null}
 
           <div className="start-divider">
             <span>or open a table</span>

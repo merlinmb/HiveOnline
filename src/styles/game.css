@@ -76,9 +76,49 @@
 
 .game-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 344px;
+  grid-template-columns: 248px minmax(0, 1fr) 344px;
   gap: 20px;
   align-items: start;
+}
+
+/* Compact player strip used only by the phone layout. */
+.mobile-match {
+  display: none;
+}
+
+.hand-column {
+  position: sticky;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  min-width: 0;
+}
+
+/* The rack sits in a narrow rail, so the tiles wrap into two columns. */
+.hand-column .hand-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: visible;
+}
+
+.hand-column .hand-card {
+  min-width: 0;
+}
+
+.hand-column .hand-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.hand-column .hand-title {
+  font-size: 0.66rem;
+}
+
+.hand-column .player-card-top {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .board-column {
@@ -153,7 +193,7 @@
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.18);
-  color: var(--muted);
+  color: #fff;
   font-size: 0.72rem;
   font-weight: 600;
   line-height: 1.4;
@@ -162,7 +202,7 @@
 .board-banner.is-live {
   border-color: rgba(231, 179, 74, 0.2);
   background: rgba(231, 179, 74, 0.055);
-  color: var(--text-soft);
+  color: #fff;
 }
 
 .board-banner > svg {
@@ -172,7 +212,7 @@
 
 .board-banner-aside {
   margin-left: auto;
-  color: var(--muted-dim);
+  color: rgba(255, 255, 255, 0.68);
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -227,7 +267,7 @@
   padding: 7px 11px;
   border: 1px dashed rgba(231, 179, 74, 0.25);
   border-radius: 9px;
-  color: #c1a970;
+  color: #fff;
   font-size: 0.68rem;
   line-height: 1.45;
 }
@@ -268,14 +308,14 @@
 }
 
 .board-empty-title {
-  fill: #cbbd99;
+  fill: #fff;
   font-family: var(--serif);
   font-size: 15px;
   font-style: italic;
 }
 
 .board-empty-sub {
-  fill: #77866f;
+  fill: rgba(255, 255, 255, 0.78);
   font-family: var(--sans);
   font-size: 9px;
   letter-spacing: 0.06em;
@@ -1447,6 +1487,11 @@
   padding: 8px 2px 20px;
   margin-bottom: 18px;
   border-bottom: 1px solid var(--border-soft);
+}
+
+/* Only shown in the phone layout, where the site header is off-screen. */
+.hotseat-back {
+  display: none;
 }
 
 .hotseat-head h1 {
