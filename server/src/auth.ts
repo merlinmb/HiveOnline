@@ -22,7 +22,16 @@ const scryptAsync = promisify(scrypt) as (
   options?: import('node:crypto').ScryptOptions,
 ) => Promise<Buffer>;
 export const COOKIE_NAME = 'hive_session';
-const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_SESSION_DAYS = 1;
+const MAX_SESSION_DAYS = 90;
+/** Keep only the newest sessions per account, so an old stolen cookie expires. */
+const MAX_SESSIONS_PER_USER = 10;
+
+export function clampSessionDays(days: number | undefined, fallback = 30): number {
+  const value = days === undefined || !Number.isFinite(days) ? fallback : days;
+  return Math.min(MAX_SESSION_DAYS, Math.max(MIN_SESSION_DAYS, Math.round(value)));
+}
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -58,9 +67,20 @@ function tokenHash(token: string): string {
 export function createSession(db: DB, userId: string, days = 30): string {
   const token = randomBytes(32).toString('base64url');
   const now = Date.now();
-  db.prepare(
-    'INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
-  ).run(tokenHash(token), userId, now, now + days * 24 * 60 * 60 * 1000);
+  const expiresAt = now + clampSessionDays(days) * DAY_MS;
+  db.transaction(() => {
+    db.prepare(
+      'INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
+    ).run(tokenHash(token), userId, now, expiresAt);
+    db.prepare(
+      `DELETE FROM sessions
+       WHERE user_id = ?
+         AND token_hash NOT IN (
+           SELECT token_hash FROM sessions WHERE user_id = ?
+           ORDER BY created_at DESC, rowid DESC LIMIT ?
+         )`,
+    ).run(userId, userId, MAX_SESSIONS_PER_USER);
+  })();
   return token;
 }
 
@@ -87,7 +107,7 @@ export function setSessionCookie(
   config: AppConfig,
   days = config.sessionDays,
 ): void {
-  const maxAge = Math.min(days, 30) * 24 * 60 * 60 * 1000 || SESSION_MAX_AGE_MS;
+  const maxAge = clampSessionDays(days, config.sessionDays) * DAY_MS;
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',

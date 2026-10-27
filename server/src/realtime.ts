@@ -9,6 +9,12 @@ import type { GameService } from './games';
 import { HttpError } from './errors';
 import { actionSchema, chatSchema, gameIdSchema } from './validation';
 import { log } from './logger';
+import { IllegalMoveError } from '../../shared/hive/engine';
+
+const MAX_SOCKETS_PER_USER = 8;
+const MAX_CHAT_ROOMS = 200;
+/** A player cannot usefully move faster than this; it bounds socket spam. */
+const ACTION_INTERVAL_MS = 250;
 
 export interface ChatMessage {
   id: string;
@@ -37,8 +43,8 @@ function send(ack: unknown, payload: Record<string, unknown>): void {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof HttpError) return error.message;
-  if (error instanceof Error) return error.message;
+  if (error instanceof HttpError || error instanceof IllegalMoveError) return error.message;
+  log.error('Realtime handler failed:', (error as Error)?.message ?? String(error));
   return 'Something went wrong.';
 }
 
@@ -51,6 +57,8 @@ export function attachRealtime(
 ): RealtimeHandle {
   const presence = new Map<string, Set<string>>();
   const chats = new Map<string, ChatMessage[]>();
+  const lastActionAt = new Map<string, number>();
+  const lastChatAt = new Map<string, number>();
 
   const onlineCount = () => presence.size;
 
@@ -86,10 +94,21 @@ export function attachRealtime(
 
   io.on('connection', (socket) => {
     const user = socket.data.user as { id: string; username: string; is_guest: number };
-    let lastChatAt = 0;
 
-    if (!presence.has(user.id)) presence.set(user.id, new Set());
-    presence.get(user.id)?.add(socket.id);
+    // A tab-reload storm (or a script) must not accumulate sockets. Keep the
+    // newest connections and drop the oldest one for this account.
+    let sockets = presence.get(user.id);
+    if (!sockets) {
+      sockets = new Set();
+      presence.set(user.id, sockets);
+    }
+    while (sockets.size >= MAX_SOCKETS_PER_USER) {
+      const oldest = sockets.values().next().value as string | undefined;
+      if (!oldest) break;
+      sockets.delete(oldest);
+      io.sockets.sockets.get(oldest)?.disconnect(true);
+    }
+    sockets.add(socket.id);
     broadcastOnline();
     log.debug(`Socket connected: ${user.username} (${socket.id}).`);
 
@@ -114,6 +133,10 @@ export function attachRealtime(
         send(ack, { ok: false, error: 'This table is private.' });
         return;
       }
+      if (row.status === 'abandoned') {
+        send(ack, { ok: false, error: 'This table has expired.' });
+        return;
+      }
       const room = `game:${row.id}`;
       socket.join(room);
       send(ack, {
@@ -136,6 +159,12 @@ export function attachRealtime(
           send(ack, { ok: false, error: 'That move could not be read.' });
           return;
         }
+        const now = Date.now();
+        if (now - (lastActionAt.get(user.id) ?? 0) < ACTION_INTERVAL_MS) {
+          send(ack, { ok: false, error: 'Slow down a little.' });
+          return;
+        }
+        lastActionAt.set(user.id, now);
         const row = games.performAction(gameParsed.data.gameId, user.id, actionParsed.data);
         broadcastGame(row.id);
         if (row.status === 'finished') broadcastLobby();
@@ -170,7 +199,7 @@ export function attachRealtime(
           return;
         }
         const now = Date.now();
-        if (now - lastChatAt < 700) {
+        if (now - (lastChatAt.get(user.id) ?? 0) < 700) {
           send(ack, { ok: false, error: 'Slow down a little.' });
           return;
         }
@@ -183,7 +212,7 @@ export function attachRealtime(
           send(ack, { ok: false, error: 'This table is private.' });
           return;
         }
-        lastChatAt = now;
+        lastChatAt.set(user.id, now);
         const message: ChatMessage = {
           id: randomUUID(),
           gameId: row.id,
@@ -196,7 +225,13 @@ export function attachRealtime(
         const list = chats.get(row.id) ?? [];
         list.push(message);
         if (list.length > 60) list.splice(0, list.length - 60);
+        // Re-insert so the map is ordered oldest-first for the LRU trim below.
+        chats.delete(row.id);
         chats.set(row.id, list);
+        if (chats.size > MAX_CHAT_ROOMS) {
+          const oldestRoom = chats.keys().next().value as string | undefined;
+          if (oldestRoom) chats.delete(oldestRoom);
+        }
         socket.join(`game:${row.id}`);
         io.to(`game:${row.id}`).emit('game:chat', message);
         send(ack, { ok: true });
@@ -209,7 +244,11 @@ export function attachRealtime(
       const sockets = presence.get(user.id);
       if (sockets) {
         sockets.delete(socket.id);
-        if (sockets.size === 0) presence.delete(user.id);
+        if (sockets.size === 0) {
+          presence.delete(user.id);
+          lastActionAt.delete(user.id);
+          lastChatAt.delete(user.id);
+        }
       }
       broadcastOnline();
     });

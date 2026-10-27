@@ -1,5 +1,7 @@
 {
   "publicUrl": "http://homebridge.local:8085",
+  "trustProxy": false,
+  "sessionDays": 30,
   "mailMode": "smtp",
   "registration": {
     "allowGuests": true,

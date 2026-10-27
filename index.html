@@ -8,19 +8,7 @@
       name="description"
       content="Hive Online — play the classic two-player tile game live, with invite codes, ranked play and a pass-and-play mode."
     />
-    <script>
-      // Apply the saved theme before the first paint to avoid a flash.
-      (() => {
-        try {
-          const stored = localStorage.getItem('hive-theme');
-          const theme = stored === 'light' || stored === 'dark' ? stored : 'light';
-          document.documentElement.dataset.theme = theme;
-          document.documentElement.style.colorScheme = theme;
-        } catch {
-          document.documentElement.dataset.theme = 'light';
-        }
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Hive Online</title>
   </head>

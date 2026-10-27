@@ -32,7 +32,7 @@ export interface RankedAction {
 const WIN_SCORE = 10_000;
 const DEFAULT_NOISE = 0.4;
 /** Safety valve: thrashing the search must never block the event loop for long. */
-const THREAT_BUDGET_MS = 1_500;
+const THREAT_BUDGET_MS = 600;
 
 function destinationOf(action: Action): { q: number; r: number } {
   return action.type === 'place' ? { q: action.q, r: action.r } : action.to;

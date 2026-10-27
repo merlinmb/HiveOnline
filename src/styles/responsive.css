@@ -84,6 +84,13 @@
     border-left: 0;
   }
 
+  /* The floating turn pill is fixed to the viewport, so below the desktop
+     breakpoint it sits on top of the rack while scrolling. The player cards
+     already show whose turn it is. */
+  .hotseat-page .hotseat-floating {
+    display: none;
+  }
+
   .segmented {
     max-width: 480px;
   }
@@ -123,14 +130,18 @@
   }
 
   .turn-card,
-  .side-tabs,
   .game-side .player-card {
     grid-column: 1;
   }
 
+  .side-tabs {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
   .side-panel-body {
     grid-column: 2;
-    grid-row: 1 / span 3;
+    grid-row: 2 / span 3;
     height: 100%;
   }
 
@@ -1532,7 +1543,6 @@
   .modal {
     max-height: calc(100vh - 24px);
     max-height: calc(100dvh - 24px);
-    overflow-y: auto;
   }
 
   .game-title .badge {
@@ -1798,7 +1808,6 @@
   /* Dialogs must scroll inside a short viewport instead of clipping. */
   .modal {
     max-height: calc(100vh - 24px);
-    overflow-y: auto;
   }
 
   .modal-head {

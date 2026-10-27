@@ -33,6 +33,12 @@ export interface AppConfig {
   host: string;
   dataDir: string;
   configDir: string;
+  /**
+   * Trust one upstream proxy for `X-Forwarded-For`/`X-Forwarded-Proto`.
+   * Keep this off when the container port is published directly, otherwise a
+   * client can spoof its address and bypass the IP rate limiters.
+   */
+  trustProxy: boolean;
   mailMode: MailMode;
   smtp: SmtpConfig;
   zeptomail: ZeptoMailConfig;
@@ -60,7 +66,12 @@ function envBoolOptional(value: string | undefined): boolean | undefined {
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
-function envInt(value: string | undefined, fallback: number, min: number, max: number): number {
+function envInt(
+  value: string | number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
@@ -109,19 +120,23 @@ export function loadConfig(): AppConfig {
     fileConfig.ollama?.enabled ??
     ollamaUrl.length > 0;
 
+  const publicUrl = (
+    process.env.PUBLIC_URL ??
+    fileConfig.publicUrl ??
+    (isProduction ? 'http://homebridge.local:8085' : 'http://localhost:5173')
+  ).replace(/\/+$/, '');
+
   const config: AppConfig = {
-    publicUrl:
-      process.env.PUBLIC_URL ??
-      fileConfig.publicUrl ??
-      (isProduction ? 'http://homebridge.local:8085' : 'http://localhost:5173'),
-    port: Number(process.env.PORT ?? fileConfig.port ?? 3000),
+    publicUrl,
+    port: envInt(process.env.PORT ?? fileConfig.port, 3000, 1, 65535),
     host: process.env.HOST ?? fileConfig.host ?? '0.0.0.0',
     dataDir: process.env.DATA_DIR ?? fileConfig.dataDir ?? dataDir,
     configDir,
+    trustProxy: envBool(process.env.TRUST_PROXY, Boolean(fileConfig.trustProxy)),
     mailMode,
     smtp: {
       host: smtpHost,
-      port: Number(process.env.SMTP_PORT ?? fileConfig.smtp?.port ?? 587),
+      port: envInt(process.env.SMTP_PORT ?? fileConfig.smtp?.port, 587, 1, 65535),
       secure: envBool(process.env.SMTP_SECURE, Boolean(fileConfig.smtp?.secure)),
       user: process.env.SMTP_USER ?? fileConfig.smtp?.user ?? '',
       pass: process.env.SMTP_PASS ?? fileConfig.smtp?.pass ?? '',
@@ -176,7 +191,7 @@ export function loadConfig(): AppConfig {
         fileConfig.registration?.requireVerifiedForRanked ??
         true,
     },
-    sessionDays: Number(process.env.SESSION_DAYS ?? 30),
+    sessionDays: envInt(process.env.SESSION_DAYS ?? fileConfig.sessionDays, 30, 1, 90),
   };
 
   fs.mkdirSync(configDir, { recursive: true });
@@ -189,9 +204,14 @@ export function loadConfig(): AppConfig {
         `${JSON.stringify(
           {
             publicUrl: config.publicUrl,
+            trustProxy: config.trustProxy,
+            sessionDays: config.sessionDays,
             mailMode: config.mailMode,
             registration: config.registration,
-            smtp: config.smtp,
+            // Never copy an environment-supplied SMTP password onto disk: the
+            // container environment already holds it, and the config file is
+            // only meant to be a readable, shareable template.
+            smtp: { ...config.smtp, pass: process.env.SMTP_PASS ? '' : config.smtp.pass },
             zeptomail: { apiUrl: config.zeptomail.apiUrl, token: '' },
             ollama: config.ollama,
             bot: config.bot,
@@ -199,11 +219,18 @@ export function loadConfig(): AppConfig {
           null,
           2,
         )}\n`,
-        'utf8',
+        { encoding: 'utf8', mode: 0o600 },
       );
       console.log(`[config] Created ${file}. Edit it to configure e-mail.`);
     } catch (error) {
       console.warn(`[config] Could not create ${file}:`, (error as Error).message);
+    }
+  } else if (process.platform !== 'win32') {
+    // Tighten older installs where the file may have been created world-readable.
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch {
+      // A read-only volume should not stop startup.
     }
   }
 

@@ -119,6 +119,13 @@
   font-size: 0.66rem;
 }
 
+/* The empty ladder keeps the same bottom rhythm as the populated ladder and
+   leaves breathing room under the "Open the first table" call to action. */
+.leaderboard-empty {
+  margin-bottom: 24px;
+  padding-bottom: 32px;
+}
+
 /* ---- ladder -------------------------------------------------------------- */
 
 .ladder-panel {
@@ -345,6 +352,9 @@
 .profile-identity h1 {
   margin: 4px 0 7px;
   font-size: clamp(2.1rem, 4vw, 3rem);
+  /* Usernames are a single unbroken word; on a narrow phone a long one has to
+     wrap rather than push the whole page sideways. */
+  overflow-wrap: anywhere;
 }
 
 .profile-badges {

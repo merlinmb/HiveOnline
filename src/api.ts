@@ -1,4 +1,5 @@
 import type {
+  GameSummary,
   GameView,
   LobbySnapshot,
   LeaderboardEntry,
@@ -6,6 +7,9 @@ import type {
   User,
 } from './types';
 import type { BotDifficulty } from '../shared/difficulty';
+
+/** Requests should fail fast instead of spinning forever on a dead server. */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 export class ApiError extends Error {
   constructor(
@@ -18,14 +22,32 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    credentials: 'include',
-    ...options,
-    headers: {
-      ...(options.body ? { 'content-type': 'application/json' } : {}),
-      ...(options.headers ?? {}),
-    },
-  });
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      credentials: 'include',
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...(options.body ? { 'content-type': 'application/json' } : {}),
+        ...(options.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') {
+      throw new ApiError('The server took too long to respond. Please try again.', 0);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 
   let payload: unknown = null;
   const text = await response.text();
@@ -72,7 +94,7 @@ export const api = {
       '/leaderboard',
     ),
   lobby: () => request<LobbySnapshot>('/lobby'),
-  myGames: () => request<{ active: GameView[]; recent: GameView[] }>('/me/games'),
+  myGames: () => request<{ active: GameSummary[]; recent: GameSummary[] }>('/me/games'),
   createGame: (input: {
     visibility?: 'public' | 'private';
     expansions?: boolean;

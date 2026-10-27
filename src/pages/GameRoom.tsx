@@ -73,6 +73,7 @@ export default function GameRoom() {
   const [resultDismissed, setResultDismissed] = useState(false);
   const [newGameBusy, setNewGameBusy] = useState(false);
   const finishedRef = useRef<string | null>(null);
+  const actionTimer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -184,31 +185,46 @@ export default function GameRoom() {
   const spectator = myColor === null;
   const myTurn =
     Boolean(game) && game?.status === 'active' && myColor !== null && game?.state.turn === myColor;
-  const canAct = myTurn && !moveBusy;
+  const canAct = Boolean(myTurn && connected && !moveBusy);
 
   const opponent =
     myColor === 'white' ? game?.players.black : myColor === 'black' ? game?.players.white : null;
 
   const inviteLink = game ? `${window.location.origin}/g/${game.code}` : '';
 
+  const clearActionTimer = useCallback(() => {
+    if (actionTimer.current !== null) {
+      window.clearTimeout(actionTimer.current);
+      actionTimer.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearActionTimer(), [clearActionTimer]);
+
   const sendAction = useCallback(
     (action: Action) => {
       if (!socket || !game || !canAct) return;
+      clearActionTimer();
       setMoveBusy(true);
       setSelection(null);
       socket.emit(
         'game:action',
         { gameId: game.id, action },
         (response: { ok?: boolean; error?: string }) => {
+          clearActionTimer();
           setMoveBusy(false);
           if (!response?.ok) {
             toast(response?.error ?? 'That move was refused.', 'error');
           }
         },
       );
-      window.setTimeout(() => setMoveBusy(false), 6000);
+      // The ack can be lost on a flaky connection; never leave the board locked.
+      actionTimer.current = window.setTimeout(() => {
+        actionTimer.current = null;
+        setMoveBusy(false);
+      }, 6000);
     },
-    [socket, game, canAct, toast],
+    [socket, game, canAct, toast, clearActionTimer],
   );
 
   const sendChat = useCallback(
@@ -235,7 +251,7 @@ export default function GameRoom() {
   );
 
   const resign = () => {
-    if (!socket || !game) return;
+    if (!socket || !game || !connected) return;
     setResignBusy(true);
     socket.emit(
       'game:resign',
@@ -322,7 +338,7 @@ export default function GameRoom() {
           <div className="game-top-actions">
             <span className={`connection-pill ${connected ? 'is-on' : ''}`}>
               <span className="connection-dot" />
-              {connected ? 'Connected' : 'Reconnecting'}
+              {connected ? 'Connected' : 'Reconnecting — moves paused'}
             </span>
           </div>
         </div>
@@ -484,7 +500,7 @@ export default function GameRoom() {
         <div className="game-top-actions">
           <span className={`connection-pill ${connected ? 'is-on' : ''}`}>
             <span className="connection-dot" />
-            {connected ? 'Connected' : 'Reconnecting'}
+            {connected ? 'Connected' : 'Reconnecting — moves paused'}
           </span>
           <CopyButton value={inviteLink} label="Copy invite link" className="btn btn-ghost btn-sm" />
         </div>
@@ -726,6 +742,8 @@ export default function GameRoom() {
                   type="button"
                   className="btn btn-danger-ghost btn-sm"
                   onClick={() => setResignOpen(true)}
+                  disabled={!connected}
+                  title={connected ? undefined : 'Reconnect before resigning.'}
                 >
                   Resign
                 </button>
@@ -843,7 +861,7 @@ export default function GameRoom() {
               type="button"
               className="btn btn-danger"
               onClick={resign}
-              disabled={resignBusy}
+              disabled={resignBusy || !connected}
             >
               {resignBusy ? 'Resigning…' : 'Resign game'}
             </button>

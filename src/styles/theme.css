@@ -294,7 +294,9 @@ html[data-theme='light'] .hive-board,
 html[data-theme='light'] .hand-rack,
 html[data-theme='light'] .player-card,
 html[data-theme='light'] .mobile-match,
-html[data-theme='light'] .turn-card {
+html[data-theme='light'] .turn-card,
+html[data-theme='light'] .hero-board-frame,
+html[data-theme='light'] .floating-card {
   --text: #f5f0e3;
   --text-soft: rgba(245, 240, 227, 0.92);
   --muted: rgba(245, 240, 227, 0.72);
@@ -307,6 +309,16 @@ html[data-theme='light'] .turn-card {
   --gold-deep: #f2ca74;
   --gold-soft: rgba(231, 179, 74, 0.16);
   color: var(--text);
+}
+
+/* The landing-board overlay is small text on the darkest surface on the page,
+   so its secondary copy needs more weight than the shared dark-surface values. */
+html[data-theme='light'] .hero-board-frame,
+html[data-theme='light'] .floating-card {
+  --text: #ffffff;
+  --text-soft: rgba(255, 255, 255, 0.95);
+  --muted: rgba(255, 255, 255, 0.86);
+  --muted-dim: rgba(255, 255, 255, 0.78);
 }
 
 html[data-theme='light'] .player-card .badge-gold {

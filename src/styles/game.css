@@ -1479,6 +1479,62 @@
   width: min(1400px, calc(100% - 40px));
 }
 
+/* Pass & play has no hand rail of its own, so on desktop the two player cards
+   and the shared rack take the left rail while the board keeps the centre
+   column and the info panel keeps the right one. Narrower screens keep the
+   existing stacked layout. */
+@media (min-width: 1041px) {
+  .hotseat-page .game-layout {
+    grid-template-columns: 248px minmax(0, 1fr) 344px;
+  }
+
+  .hotseat-page .board-column {
+    display: contents;
+  }
+
+  .hotseat-page .board-column > .player-card:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .hotseat-page .board-column > .hand-rack {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .hotseat-page .board-column > .player-card:last-child {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .hotseat-page .board-column > .board-panel {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+
+  .hotseat-page .game-side {
+    grid-column: 3;
+    grid-row: 1 / span 3;
+  }
+
+  /* The rack shares the narrow rail, so tiles wrap into two columns. */
+  .hotseat-page .hand-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .hotseat-page .hand-card {
+    min-width: 0;
+  }
+}
+
+@media (min-width: 1041px) and (max-width: 1180px) {
+  .hotseat-page .game-layout {
+    grid-template-columns: 224px minmax(0, 1fr) 318px;
+  }
+}
+
 .hotseat-head {
   display: flex;
   align-items: flex-end;

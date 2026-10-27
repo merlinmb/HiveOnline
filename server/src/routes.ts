@@ -30,6 +30,7 @@ import type { Mailer } from './mailer';
 import type { RealtimeHandle } from './realtime';
 import { rateLimit } from './rateLimit';
 import {
+  GAME_CODE_PATTERN,
   RESERVED_USERNAMES,
   createGameSchema,
   firstZodError,
@@ -64,6 +65,12 @@ export function createApiRouter({ db, config, mailer, games, realtime, bot }: De
   const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 12 });
   const loginLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
   const verifyLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
+  // Authenticated actions are keyed by account so a shared NAT cannot lock out
+  // unrelated players, and so one account cannot flood the game tables.
+  const byUserOrIp = (req: Request) => req.user?.id ?? req.ip ?? 'unknown';
+  const gameLimiter = rateLimit({ windowMs: 60 * 1000, max: 12, key: byUserOrIp });
+  const joinLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, key: byUserOrIp });
+  const lookupLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, key: byUserOrIp });
 
   router.get('/health', (_req, res) => {
     db.prepare('SELECT 1').get();
@@ -261,7 +268,7 @@ export function createApiRouter({ db, config, mailer, games, realtime, bot }: De
     }),
   );
 
-  router.post('/games', requireAuth, (req, res) => {
+  router.post('/games', requireAuth, gameLimiter, (req, res) => {
     const parsed = createGameSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw new HttpError(400, firstZodError(parsed.error));
     const view = games.createGame(req.user as NonNullable<Request['user']>, parsed.data);
@@ -275,7 +282,7 @@ export function createApiRouter({ db, config, mailer, games, realtime, bot }: De
     res.status(201).json({ game: view });
   });
 
-  router.post('/games/join', requireAuth, (req, res) => {
+  router.post('/games/join', requireAuth, joinLimiter, (req, res) => {
     const parsed = joinGameSchema.safeParse(req.body);
     if (!parsed.success) throw new HttpError(400, firstZodError(parsed.error));
     const view = games.joinGame(req.user as NonNullable<Request['user']>, parsed.data.code);
@@ -284,7 +291,7 @@ export function createApiRouter({ db, config, mailer, games, realtime, bot }: De
     res.json({ game: view });
   });
 
-  router.post('/games/quick', requireAuth, (req, res) => {
+  router.post('/games/quick', requireAuth, gameLimiter, (req, res) => {
     const parsed = createGameSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw new HttpError(400, firstZodError(parsed.error));
     const view = games.quickMatch(req.user as NonNullable<Request['user']>, parsed.data);
@@ -293,20 +300,24 @@ export function createApiRouter({ db, config, mailer, games, realtime, bot }: De
     res.json({ game: view });
   });
 
-  router.get('/games/:code', requireAuth, (req, res) => {
-    const row = games.getRowByCode(req.params.code);
+  router.get('/games/:code', requireAuth, lookupLimiter, (req, res) => {
+    const code = String(req.params.code ?? '');
+    if (!GAME_CODE_PATTERN.test(code)) throw new HttpError(404, 'No table found with that code.');
+    const row = games.getRowByCode(code);
     if (!row) throw new HttpError(404, 'No table found with that code.');
     const user = req.user as NonNullable<Request['user']>;
     res.json({ game: games.viewForUser(row, user.id) });
   });
 
-  router.get('/players/:username', (req, res) => {
+  router.get('/players/:username', lookupLimiter, (req, res) => {
+    const username = String(req.params.username ?? '');
+    if (!/^[A-Za-z0-9_-]{1,20}$/.test(username)) throw new HttpError(404, 'Player not found.');
     const user = db
       .prepare(
         `SELECT id, username, rating, ranked_games, wins, losses, created_at
          FROM users WHERE username = ? COLLATE NOCASE AND is_guest = 0`,
       )
-      .get(req.params.username) as
+      .get(username) as
       | {
           id: string;
           username: string;

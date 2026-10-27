@@ -40,8 +40,11 @@ export const createGameSchema = z.object({
   difficulty: z.enum(['auto', ...BOT_LEVELS]).optional(),
 });
 
+/** Table codes are always 4–12 letters/digits; reject anything else before a DB lookup. */
+export const GAME_CODE_PATTERN = /^[A-Za-z0-9]{4,12}$/;
+
 export const joinGameSchema = z.object({
-  code: z.string().trim().min(4).max(12),
+  code: z.string().trim().regex(GAME_CODE_PATTERN, 'That table code is not valid.'),
 });
 
 export const preferencesSchema = z.object({

@@ -9,7 +9,19 @@ import { winRate } from '../lib/format';
 import type { LeaderboardEntry } from '../types';
 
 function rankMedal(rank: number): string {
-  return rank === 1 ? '1st' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : `${rank}th`;
+  // 11th/12th/13th are the exception to the 1st/2nd/3rd pattern.
+  const lastTwo = rank % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${rank}th`;
+  switch (rank % 10) {
+    case 1:
+      return `${rank}st`;
+    case 2:
+      return `${rank}nd`;
+    case 3:
+      return `${rank}rd`;
+    default:
+      return `${rank}th`;
+  }
 }
 
 export default function Leaderboard() {
@@ -80,7 +92,7 @@ export default function Leaderboard() {
       ) : error ? (
         <div className="form-error">{error}</div>
       ) : entries.length === 0 ? (
-        <div className="panel">
+        <div className="panel leaderboard-empty">
           <EmptyState
             title="The ladder is empty"
             icon={<BugIcon bug="queen" size={52} />}

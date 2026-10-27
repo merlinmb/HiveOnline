@@ -195,7 +195,15 @@ Supported environment variables:
 | `OLLAMA_ENABLED`, `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT_MS` | `ollama.*` |
 | `BOT_MIN_DELAY_MS` | `ollama.minDelayMs` |
 | `BOT_DIFFICULTY` | `bot.difficulty` |
-| `SESSION_DAYS` | session lifetime (default 30 days; guests always get 7) |
+| `SESSION_DAYS` | session lifetime, clamped to 1–90 days (default 30; guests always get 7) |
+| `TRUST_PROXY` | trust one upstream proxy for `X-Forwarded-For`/`X-Forwarded-Proto` (default `false`) |
+
+### Security and TLS
+
+- `TRUST_PROXY` is **off by default** because the container port is normally published directly. Only set `TRUST_PROXY=true` when a reverse proxy forwards requests; otherwise a client can spoof its address and bypass the IP rate limiters.
+- Session cookies are marked `Secure` automatically when `PUBLIC_URL` starts with `https://`. Terminate TLS at the proxy and set `PUBLIC_URL=https://…` before exposing the app outside a trusted network.
+- HSTS is sent only on HTTPS requests. The app also sets `X-Frame-Options: DENY`, a restrictive CSP (the theme boot script is served as `/theme-init.js`, not inline), and rejects Socket.IO handshakes whose `Origin` does not match the request host or `PUBLIC_URL`.
+- `.env` and `config/app.json` carry mail credentials. The deployment scripts restrict `.env` to mode `600`, and the server writes `config/app.json` as `600`; never commit either file.
 
 ### E-mail and account verification
 

@@ -31,6 +31,16 @@ import {
 import { rateGame } from './elo';
 import { log } from './logger';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Hide unjoined tables from the lobby after a day. */
+const LOBBY_WAITING_MAX_AGE_MS = DAY_MS;
+/** Hide games that have not seen a move for a week. */
+const LOBBY_ACTIVE_MAX_AGE_MS = 7 * DAY_MS;
+const WAITING_EXPIRY_MS = 7 * DAY_MS;
+const ACTIVE_EXPIRY_MS = 30 * DAY_MS;
+/** Upper bound on simultaneously open (waiting or active) tables per player. */
+const MAX_OPEN_GAMES_PER_USER = 12;
+
 export interface GameSummary {
   id: string;
   code: string;
@@ -107,19 +117,29 @@ export class GameService {
     return true;
   }
 
-  private playersFor(row: GameRow): { white: PublicUser | null; black: PublicUser | null } {
-    const host = getUserById(this.db, row.host_id);
-    const guest = row.guest_id ? getUserById(this.db, row.guest_id) : null;
-    return {
-      white: host ? toPublicUser(host) : null,
-      black: guest ? toPublicUser(guest) : null,
-    };
+  /** Resolve every player referenced by these rows in one query, not 2N. */
+  private usersForRows(rows: GameRow[]): Map<string, UserRow> {
+    const ids = new Set<string>();
+    for (const row of rows) {
+      ids.add(row.host_id);
+      if (row.guest_id) ids.add(row.guest_id);
+    }
+    if (ids.size === 0) return new Map();
+    const placeholders = [...ids].map(() => '?').join(', ');
+    const users = this.db
+      .prepare(`SELECT * FROM users WHERE id IN (${placeholders})`)
+      .all(...ids) as UserRow[];
+    return new Map(users.map((user) => [user.id, user]));
   }
 
-  private summaryFor(row: GameRow): GameSummary {
+  private summaryFor(row: GameRow, users?: Map<string, UserRow>): GameSummary {
     const state = stateOf(row);
-    const host = getUserById(this.db, row.host_id);
-    const guest = row.guest_id ? getUserById(this.db, row.guest_id) : null;
+    const host = users ? users.get(row.host_id) ?? null : getUserById(this.db, row.host_id);
+    const guest = row.guest_id
+      ? users
+        ? users.get(row.guest_id) ?? null
+        : getUserById(this.db, row.guest_id)
+      : null;
     const computer = Boolean(host?.is_bot === 1 || guest?.is_bot === 1);
     const human = host?.is_bot === 1 ? guest : guest?.is_bot === 1 ? host : null;
     const botLevel = computer
@@ -136,13 +156,22 @@ export class GameService {
       visibility: row.visibility,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      players: this.playersFor(row),
+      players: {
+        white: host ? toPublicUser(host) : null,
+        black: guest ? toPublicUser(guest) : null,
+      },
       settings: state.settings,
       turn: state.turn,
       moveNumber: state.moveNumber,
       winner: state.winner,
       finishReason: state.finishReason,
     };
+  }
+
+  private summariesFor(rows: GameRow[]): GameSummary[] {
+    if (rows.length === 0) return [];
+    const users = this.usersForRows(rows);
+    return rows.map((row) => this.summaryFor(row, users));
   }
 
   view(row: GameRow): GameView {
@@ -170,7 +199,18 @@ export class GameService {
 
   viewForUser(row: GameRow, userId: string): GameView {
     if (!this.canView(row, userId)) throw new HttpError(403, 'This table is private.');
+    if (row.status === 'abandoned') throw new HttpError(410, 'This table has expired.');
     return this.view(row);
+  }
+
+  private openGameCount(userId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM games
+         WHERE status IN ('waiting', 'active') AND (host_id = ? OR guest_id = ?)`,
+      )
+      .get(userId, userId) as { n: number };
+    return row.n;
   }
 
   /** Resolve the seated difficulty, honouring the server override first. */
@@ -181,6 +221,12 @@ export class GameService {
   }
 
   createGame(user: UserRow, options: CreateGameOptions = {}): GameView {
+    if (this.openGameCount(user.id) >= MAX_OPEN_GAMES_PER_USER) {
+      throw new HttpError(
+        429,
+        `You already have ${MAX_OPEN_GAMES_PER_USER} open games. Finish or resign one before starting another.`,
+      );
+    }
     const versusComputer = options.opponent === 'computer';
     const botLevel = versusComputer ? this.botLevelFor(user, options.difficulty) : null;
     const settings: GameSettings = {
@@ -242,6 +288,7 @@ export class GameService {
   joinGame(user: UserRow, code: string): GameView {
     const row = this.getRowByCode(code);
     if (!row) throw new HttpError(404, 'No table found with that code.');
+    if (row.status === 'abandoned') throw new HttpError(410, 'That table has expired.');
 
     if (row.host_id === user.id || row.guest_id === user.id) {
       return this.viewForUser(row, user.id);
@@ -286,48 +333,56 @@ export class GameService {
   }
 
   lobby(userId: string | null): LobbySnapshot {
+    const now = Date.now();
+    const openCutoff = now - LOBBY_WAITING_MAX_AGE_MS;
+    const liveCutoff = now - LOBBY_ACTIVE_MAX_AGE_MS;
+
     const openRows = this.db
       .prepare(
         `SELECT * FROM games
          WHERE status = 'waiting' AND visibility = 'public' AND guest_id IS NULL
+           AND created_at > ?
            AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
            AND (? IS NULL OR host_id != ?)
          ORDER BY created_at DESC LIMIT 24`,
       )
-      .all(userId, userId) as GameRow[];
+      .all(openCutoff, userId, userId) as GameRow[];
 
     const liveRows = this.db
       .prepare(
         `SELECT * FROM games
          WHERE status = 'active' AND visibility = 'public'
+           AND updated_at > ?
            AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
            AND (guest_id IS NULL OR guest_id NOT IN (SELECT id FROM users WHERE is_bot = 1))
          ORDER BY updated_at DESC LIMIT 24`,
       )
-      .all() as GameRow[];
+      .all(liveCutoff) as GameRow[];
 
     const waiting = (
       this.db
         .prepare(
           `SELECT COUNT(*) AS n FROM games WHERE status = 'waiting'
+             AND created_at > ?
              AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
              AND (guest_id IS NULL OR guest_id NOT IN (SELECT id FROM users WHERE is_bot = 1))`,
         )
-        .get() as { n: number }
+        .get(openCutoff) as { n: number }
     ).n;
     const active = (
       this.db
         .prepare(
           `SELECT COUNT(*) AS n FROM games WHERE status = 'active'
+             AND updated_at > ?
              AND host_id NOT IN (SELECT id FROM users WHERE is_bot = 1)
              AND (guest_id IS NULL OR guest_id NOT IN (SELECT id FROM users WHERE is_bot = 1))`,
         )
-        .get() as { n: number }
+        .get(liveCutoff) as { n: number }
     ).n;
 
     return {
-      open: openRows.map((row) => this.summaryFor(row)),
-      live: liveRows.map((row) => this.summaryFor(row)),
+      open: this.summariesFor(openRows),
+      live: this.summariesFor(liveRows),
       counts: { waiting, active },
     };
   }
@@ -340,15 +395,31 @@ export class GameService {
       )
       .all(userId, userId) as GameRow[];
 
-    const active = rows
-      .filter((row) => row.status === 'waiting' || row.status === 'active')
-      .map((row) => this.summaryFor(row));
-    const recent = rows
-      .filter((row) => row.status === 'finished')
-      .slice(0, 8)
-      .map((row) => this.summaryFor(row));
+    return {
+      active: this.summariesFor(
+        rows.filter((row) => row.status === 'waiting' || row.status === 'active'),
+      ),
+      recent: this.summariesFor(
+        rows.filter((row) => row.status === 'finished').slice(0, 8),
+      ),
+    };
+  }
 
-    return { active, recent };
+  /**
+   * Retire tables that were never joined or have gone quiet for weeks.
+   * @returns how many rows changed status.
+   */
+  expireStaleGames(now = Date.now()): number {
+    const result = this.db
+      .prepare(
+        `UPDATE games
+         SET status = 'abandoned', updated_at = ?
+         WHERE (status = 'waiting' AND created_at < ?)
+            OR (status = 'active' AND updated_at < ?)`,
+      )
+      .run(now, now - WAITING_EXPIRY_MS, now - ACTIVE_EXPIRY_MS);
+    if (result.changes > 0) log.info(`Expired ${result.changes} stale table(s).`);
+    return result.changes;
   }
 
   /** @returns the updated row, or null for a draw / finished game. */

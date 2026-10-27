@@ -67,6 +67,31 @@ foreach ($tool in @("ssh", "scp", "tar")) {
   }
 }
 
+# docker build writes its progress to stderr. Windows PowerShell turns native
+# stderr into error records, which would abort this script under
+# $ErrorActionPreference = "Stop" even when the command succeeds. Run native
+# tools with a local "Continue" preference and check the exit code ourselves.
+function Invoke-Native {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [switch]$Capture
+  )
+
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    if ($Capture) {
+      $script:nativeOutput = @(& $FilePath @Arguments 2>&1 | ForEach-Object { "$_" })
+    } else {
+      & $FilePath @Arguments 2>&1 | ForEach-Object { Write-Host "$_" }
+    }
+    return $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+}
+
 $staging = Join-Path $env:TEMP ("hive-online-site-" + [guid]::NewGuid().ToString("N"))
 $archive = Join-Path $env:TEMP ("hive-online-site-" + [guid]::NewGuid().ToString("N") + ".tar.gz")
 $envFile = Join-Path $env:TEMP ("hive-online-env-" + [guid]::NewGuid().ToString("N"))
@@ -105,26 +130,28 @@ try {
 
   Write-Host "Creating remote directories..." -ForegroundColor Cyan
   $prepare = "set -euo pipefail; mkdir -p '$RemoteRoot/site' '$RemoteRoot/data' '$RemoteRoot/config'; rm -rf '$RemoteRoot/site'; mkdir -p '$RemoteRoot/site'"
-  & ssh $Remote $prepare
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = Invoke-Native ssh @($Remote, $prepare)
+  if ($exitCode -ne 0) {
     throw "Could not prepare $RemoteRoot on $Remote."
   }
 
   Write-Host "Uploading source..." -ForegroundColor Cyan
-  & scp -q $archive "${Remote}:/tmp/hive-online-site.tar.gz"
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = Invoke-Native scp @("-q", $archive, "${Remote}:/tmp/hive-online-site.tar.gz")
+  if ($exitCode -ne 0) {
     throw "Could not upload the source archive."
   }
 
-  & ssh $Remote "set -euo pipefail; tar -xzf /tmp/hive-online-site.tar.gz -C '$RemoteRoot/site'; rm -f /tmp/hive-online-site.tar.gz"
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = Invoke-Native ssh @($Remote, "set -euo pipefail; tar -xzf /tmp/hive-online-site.tar.gz -C '$RemoteRoot/site'; rm -f /tmp/hive-online-site.tar.gz")
+  if ($exitCode -ne 0) {
     throw "Could not extract the source archive on $Remote."
   }
 
   Write-Host "Uploading deployment files..." -ForegroundColor Cyan
-  & scp -q (Join-Path $projectRoot "deploy/compose.yml") "${Remote}:$RemoteRoot/docker-compose.yml"
-  & scp -q (Join-Path $projectRoot "deploy/remote-deploy.sh") "${Remote}:$RemoteRoot/remote-deploy.sh"
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = Invoke-Native scp @("-q", (Join-Path $projectRoot "deploy/compose.yml"), "${Remote}:$RemoteRoot/docker-compose.yml")
+  if ($exitCode -eq 0) {
+    $exitCode = Invoke-Native scp @("-q", (Join-Path $projectRoot "deploy/remote-deploy.sh"), "${Remote}:$RemoteRoot/remote-deploy.sh")
+  }
+  if ($exitCode -ne 0) {
     throw "Could not upload the deployment files."
   }
 
@@ -176,22 +203,22 @@ try {
   # is preserved untouched.
   $envContents = ($values.Keys | ForEach-Object { "$_=$($values[$_])" }) -join "`n"
   Set-Content -LiteralPath $envFile -Value ($envContents + "`n") -NoNewline -Encoding ascii
-  & scp -q $envFile "${Remote}:$RemoteRoot/.env"
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = Invoke-Native scp @("-q", $envFile, "${Remote}:$RemoteRoot/.env")
+  if ($exitCode -ne 0) {
     throw "Could not upload the deployment environment file."
   }
 
   if ($ConfigFile) {
     Write-Host "Uploading app config from $ConfigFile..." -ForegroundColor Cyan
-    & scp -q $ConfigFile "${Remote}:$RemoteRoot/config/app.json"
-    if ($LASTEXITCODE -ne 0) {
+    $exitCode = Invoke-Native scp @("-q", $ConfigFile, "${Remote}:$RemoteRoot/config/app.json")
+    if ($exitCode -ne 0) {
       throw "Could not upload the app config."
     }
   }
 
   Write-Host "Building and starting the container on $Remote..." -ForegroundColor Cyan
-  & ssh $Remote "bash '$RemoteRoot/remote-deploy.sh'"
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = Invoke-Native ssh @($Remote, "bash '$RemoteRoot/remote-deploy.sh'")
+  if ($exitCode -ne 0) {
     throw "Remote deployment failed. See the output above for container logs."
   }
 

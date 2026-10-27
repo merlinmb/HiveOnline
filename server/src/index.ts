@@ -13,6 +13,7 @@ import { attachRealtime, type RealtimeHandle } from './realtime';
 import { createApiRouter } from './routes';
 import { HttpError } from './errors';
 import { log } from './logger';
+import { isSameOrigin } from './origin';
 import { ZodError } from 'zod';
 
 const config = loadConfig();
@@ -30,17 +31,34 @@ const bot = new ComputerPlayer(db, config, games, (gameId, finished) => {
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', 1);
+// The published port is usually hit directly, so only trust forwarded headers
+// when an operator explicitly says a reverse proxy sits in front. Otherwise a
+// client could spoof X-Forwarded-For and bypass the IP rate limiters.
+app.set('trust proxy', config.trustProxy ? 1 : false);
+
+/** Host values are echoed into a CSP header, so keep them to safe characters. */
+function safeHost(value: string | undefined): string | null {
+  if (!value) return null;
+  return /^[A-Za-z0-9.\-:[\]]+$/.test(value) ? value : null;
+}
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  if (req.secure) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   if (process.env.NODE_ENV === 'production') {
+    // The websocket origin mirrors the host the request arrived on; `'self'`
+    // alone is not honoured by every browser for ws:// connections.
+    const host = safeHost(req.headers.host);
+    const connectSrc = ["'self'", ...(host ? [`ws://${host}`, `wss://${host}`] : [])];
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self' ws: wss:",
+      `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src ${connectSrc.join(' ')}`,
     );
   }
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
@@ -54,6 +72,20 @@ const io = new SocketServer(server, {
   serveClient: false,
   maxHttpBufferSize: 256 * 1024,
   pingTimeout: 20_000,
+  // Socket.IO bypasses the Express middleware chain, so validate the browser
+  // origin here as well; otherwise any website could open an authenticated
+  // socket with a visitor's cookies.
+  allowRequest: (req, callback) => {
+    const allowed = isSameOrigin(
+      req.headers.origin,
+      req.headers.host,
+      config.publicUrl,
+    );
+    if (!allowed) {
+      log.warn(`Rejected socket handshake from unexpected origin: ${req.headers.origin ?? 'unknown'}`);
+    }
+    callback(null, allowed);
+  },
 });
 
 const realtime = attachRealtime(io, db, config, games, bot);
@@ -124,6 +156,14 @@ cleanupAuth(db);
 const cleanupInterval = setInterval(() => cleanupAuth(db), 60 * 60 * 1000);
 cleanupInterval.unref();
 
+// Abandoned tables would otherwise sit in the lobby forever and count against
+// players' open-game limits.
+games.expireStaleGames();
+const expiryInterval = setInterval(() => {
+  if (games.expireStaleGames() > 0) realtime.broadcastLobby();
+}, 6 * 60 * 60 * 1000);
+expiryInterval.unref();
+
 server.listen(config.port, config.host, () => {
   log.info(`Hive Online listening on http://${config.host}:${config.port}`);
   log.info(`Public URL: ${config.publicUrl}`);
@@ -140,6 +180,7 @@ server.listen(config.port, config.host, () => {
 async function shutdown(signal: string) {
   log.info(`${signal} received, shutting down.`);
   clearInterval(cleanupInterval);
+  clearInterval(expiryInterval);
   io.close();
   server.close(() => {
     db.close();

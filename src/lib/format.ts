@@ -42,24 +42,31 @@ export function plural(count: number, singular: string, pluralForm = `${singular
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-export function copyText(text: string): Promise<void> {
+export async function copyText(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text);
-  }
-  return new Promise((resolve, reject) => {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
     try {
-      document.execCommand('copy');
-      resolve();
-    } catch (error) {
-      reject(error);
-    } finally {
-      document.body.removeChild(textarea);
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Permission can be denied even in a secure context; use the fallback.
     }
-  });
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '0';
+  textarea.style.left = '0';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  // iOS ignores select() for some elements; an explicit range is reliable.
+  textarea.setSelectionRange(0, text.length);
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('The browser rejected the copy command.');
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }

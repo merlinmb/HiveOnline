@@ -137,7 +137,7 @@ export default function Landing() {
             </div>
             <div className="hero-stat-divider" />
             <div className="hero-stat">
-              <span className="hero-stat-value">13</span>
+              <span className="hero-stat-value">11</span>
               <span className="hero-stat-label">tiles per side</span>
             </div>
             <div className="hero-stat-divider" />

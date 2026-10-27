@@ -200,7 +200,6 @@ export default function Lobby() {
   const [computerBusy, setComputerBusy] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [joinCode, setJoinCode] = useState('');
-  const [joinBusy, setJoinBusy] = useState(false);
   const [expansions, setExpansions] = useState(false);
   const [tournamentOpening, setTournamentOpening] = useState(false);
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
@@ -254,7 +253,6 @@ export default function Lobby() {
       toast(error instanceof ApiError ? error.message : 'Could not join that table.', 'error');
     } finally {
       setJoining(null);
-      setJoinBusy(false);
     }
   };
 
@@ -613,7 +611,7 @@ export default function Lobby() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={joinBusy || joining !== null || joinCode.length < 4}
+                disabled={joining !== null || joinCode.length < 4}
               >
                 {joining ? 'Joining…' : 'Join'}
               </button>

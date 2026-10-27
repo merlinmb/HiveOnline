@@ -15,6 +15,11 @@ fi
 
 mkdir -p "$DATA" "$CONFIG"
 
+# The .env carries mail credentials; keep it private to the deploy user.
+if [ -f "$ROOT/.env" ]; then
+  chmod 600 "$ROOT/.env" 2>/dev/null || true
+fi
+
 if [ ! -f "$CONFIG/app.json" ]; then
   cp "$SITE/config.example.json" "$CONFIG/app.json"
   echo "Seeded $CONFIG/app.json"
