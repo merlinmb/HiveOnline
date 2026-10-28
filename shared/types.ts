@@ -116,7 +116,7 @@ export const BUG_META: Record<Bug, BugMeta> = {
     short: 'Spider',
     count: 2,
     expansion: false,
-    move: 'Exactly three spaces around the outside of the hive. It may not backtrack or end on its starting space.',
+    move: 'Exactly three sides around the outside of the hive — three spaces. It may not backtrack or end on its starting space.',
   },
   beetle: {
     bug: 'beetle',

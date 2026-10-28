@@ -1,14 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BugIcon } from '../components/BugIcon';
 import { HandRack, HandSummary } from '../components/HandRack';
 import { HiveBoard } from '../components/HiveBoard';
 import { MoveLog } from '../components/MoveLog';
 import { PlayerAvatar } from '../components/PlayerAvatar';
+import { TileDragGhost } from '../components/TileDragGhost';
 import { Badge, Modal, Toggle } from '../components/Ui';
-import { applyAction, createGame, getLegalActions } from '../../shared/hive/engine';
+import {
+  applyAction,
+  createGame,
+  getLegalActions,
+  queenCoord,
+} from '../../shared/hive/engine';
 import type { Action, Color, GameState, Position } from '../types';
 import type { User } from '../types';
+import type { BoardHitTest } from '../lib/dropTarget';
+import { loserOf, useResultReveal } from '../lib/finishSequence';
+import { useTileDrag } from '../lib/useTileDrag';
 
 const EMPTY_USER = (id: string, username: string): User => ({
   id,
@@ -46,6 +55,7 @@ export default function Hotseat() {
   const [draftBlack, setDraftBlack] = useState('Player 2');
   const [draftExpansions, setDraftExpansions] = useState(false);
   const [draftTournament, setDraftTournament] = useState(false);
+  const boardRef = useRef<BoardHitTest | null>(null);
 
   const legalActions = useMemo(
     () => (game.status === 'active' ? getLegalActions(game) : []),
@@ -55,6 +65,9 @@ export default function Hotseat() {
   const canAct = game.status === 'active';
   const currentHand = game.hands[currentColor];
   const finished = game.status === 'finished';
+  const defeatedColor = loserOf(game.winner);
+  const animateFinish = Boolean(finished && defeatedColor && queenCoord(game, defeatedColor));
+  const resultRevealed = useResultReveal(finished, animateFinish);
 
   const pseudoPlayers = useMemo(
     () => ({
@@ -75,6 +88,13 @@ export default function Hotseat() {
       setSelection(null);
     }
   };
+
+  const drag = useTileDrag({
+    enabled: canAct,
+    boardRef,
+    onAction: act,
+    onSelect: setSelection,
+  });
 
   const undo = () => {
     if (past.length === 0) return;
@@ -213,6 +233,12 @@ export default function Hotseat() {
               selection={selection}
               onSelectionChange={setSelection}
               onAction={act}
+              dragRef={boardRef}
+              previewKey={drag.previewKey}
+              onPieceDragStart={drag.beginDrag}
+              consumeDragClick={drag.consumeDragClick}
+              finishWinner={finished ? game.winner : null}
+              finishHold={!resultRevealed}
             />
 
             {!game.queenPlaced[currentColor] && !finished ? (
@@ -235,6 +261,12 @@ export default function Hotseat() {
                   : { kind: 'bug', bug },
               )
             }
+            onDragStart={(bug, event) => {
+              if (!legalActions.some((action) => action.type === 'place' && action.bug === bug)) {
+                return;
+              }
+              drag.beginDrag({ kind: 'bug', bug, owner: currentColor }, event);
+            }}
             disabled={!canAct}
             label={`${names[currentColor]}'s tiles`}
           />
@@ -303,7 +335,7 @@ export default function Hotseat() {
                 <span>
                   {finished
                     ? reasonText(game.finishReason)
-                    : `Hand the screen to ${names[currentColor]}. Select a tile, then a highlighted cell.`}
+                    : `Hand the screen to ${names[currentColor]}. Drag a tile onto a highlighted cell — or tap a tile, then a cell.`}
                 </span>
               </div>
             </div>
@@ -449,7 +481,7 @@ export default function Hotseat() {
       </Modal>
 
       <Modal
-        open={finished && !resultDismissed}
+        open={finished && resultRevealed && !resultDismissed}
         onClose={() => setResultDismissed(true)}
         title={winnerName ? `${winnerName} wins` : 'A draw'}
         eyebrow={winnerName ? `${winnerColor === 'white' ? 'Ivory' : 'Onyx'} takes the hive` : 'Stalemate'}
@@ -522,6 +554,8 @@ export default function Hotseat() {
           <span>{game.queenPlaced[currentColor] ? 'Queen placed' : 'Queen in hand'}</span>
         </div>
       ) : null}
+
+      <TileDragGhost drag={drag} />
     </div>
   );
 }

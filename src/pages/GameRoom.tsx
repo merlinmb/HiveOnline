@@ -10,8 +10,12 @@ import { LogoMark } from '../components/LogoMark';
 import { MoveLog } from '../components/MoveLog';
 import { PlayerAvatar } from '../components/PlayerAvatar';
 import { PlayerCard } from '../components/PlayerCard';
+import { TileDragGhost } from '../components/TileDragGhost';
 import { Badge, CopyButton, EmptyState, Modal, Spinner } from '../components/Ui';
 import { formatRelative } from '../lib/format';
+import type { BoardHitTest } from '../lib/dropTarget';
+import { loserOf, useResultReveal } from '../lib/finishSequence';
+import { useTileDrag } from '../lib/useTileDrag';
 import { useSocket } from '../socket';
 import { useToast } from '../toast';
 import type {
@@ -21,6 +25,7 @@ import type {
   GameView,
   Position,
 } from '../types';
+import { queenCoord } from '../../shared/hive/engine';
 import { BUG_META } from '../../shared/types';
 import { levelLabel } from '../../shared/difficulty';
 
@@ -74,6 +79,7 @@ export default function GameRoom() {
   const [newGameBusy, setNewGameBusy] = useState(false);
   const finishedRef = useRef<string | null>(null);
   const actionTimer = useRef<number | null>(null);
+  const boardRef = useRef<BoardHitTest | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -175,6 +181,24 @@ export default function GameRoom() {
     }
   }, [game?.status, game?.id, refresh]);
 
+  // Only celebrate a game that actually ended while we were watching; landing
+  // on a finished table from the lobby should show the result straight away.
+  const sawActive = useRef(false);
+  useEffect(() => {
+    if (game?.status === 'active') sawActive.current = true;
+  }, [game?.status]);
+
+  const finished = game?.status === 'finished';
+  const defeatedColor = game ? loserOf(game.winner) : null;
+  const animateFinish = Boolean(
+    finished &&
+      game &&
+      sawActive.current &&
+      defeatedColor &&
+      queenCoord(game.state, defeatedColor),
+  );
+  const resultRevealed = useResultReveal(Boolean(finished), animateFinish);
+
   const myColor: Color | null = useMemo(() => {
     if (!game || !user) return null;
     if (game.players.white?.id === user.id) return 'white';
@@ -226,6 +250,13 @@ export default function GameRoom() {
     },
     [socket, game, canAct, toast, clearActionTimer],
   );
+
+  const drag = useTileDrag({
+    enabled: canAct,
+    boardRef,
+    onAction: sendAction,
+    onSelect: setSelection,
+  });
 
   const sendChat = useCallback(
     (text: string) =>
@@ -600,11 +631,17 @@ export default function GameRoom() {
                   : { kind: 'bug', bug },
               )
             }
+            onDragStart={(bug, event) => {
+              if (!game.legalActions.some((action) => action.type === 'place' && action.bug === bug)) {
+                return;
+              }
+              drag.beginDrag({ kind: 'bug', bug, owner: handColor }, event);
+            }}
             disabled={!canAct}
             label={
               myColor
                 ? myTurn
-                  ? 'Your tiles — choose one'
+                  ? 'Your tiles — drag or tap'
                   : 'Your tiles'
                 : `${colorName(handColor)} tiles`
             }
@@ -674,6 +711,12 @@ export default function GameRoom() {
               selection={selection}
               onSelectionChange={setSelection}
               onAction={sendAction}
+              dragRef={boardRef}
+              previewKey={drag.previewKey}
+              onPieceDragStart={drag.beginDrag}
+              consumeDragClick={drag.consumeDragClick}
+              finishWinner={animateFinish ? game.winner : null}
+              finishHold={!resultRevealed}
             />
 
             {myColor && !game.state.queenPlaced[myColor] && game.status === 'active' ? (
@@ -726,7 +769,7 @@ export default function GameRoom() {
                   {game.status === 'finished'
                     ? reasonText(game.finishReason)
                     : myTurn
-                      ? 'Select a tile in your rack, then a highlighted cell. Select a board piece to see its moves.'
+                      ? 'Drag a tile onto a highlighted cell — or tap a tile, then a cell. Select a board piece to see its moves.'
                       : 'Moves appear here the moment they are made.'}
                 </span>
               </div>
@@ -748,7 +791,7 @@ export default function GameRoom() {
                   Resign
                 </button>
               ) : null}
-              {game.status === 'finished' ? (
+              {game.status === 'finished' && resultRevealed ? (
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -879,7 +922,7 @@ export default function GameRoom() {
       </Modal>
 
       <Modal
-        open={game.status === 'finished' && !resultDismissed}
+        open={finished && resultRevealed && !resultDismissed}
         onClose={() => setResultDismissed(true)}
         title={resultTitle}
         eyebrow={game.ranked ? 'Ranked result' : 'Casual result'}
@@ -951,6 +994,8 @@ export default function GameRoom() {
           </EmptyState>
         </div>
       ) : null}
+
+      <TileDragGhost drag={drag} />
     </div>
   );
 }

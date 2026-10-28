@@ -163,12 +163,29 @@ function placementCells(state: GameState, color: Color): Coord[] {
   return [...result.values()];
 }
 
-function slideStepAllowed(state: GameState, from: Coord, to: Coord): boolean {
+function slideStepAllowed(
+  state: GameState,
+  from: Coord,
+  to: Coord,
+  origin: Coord = from,
+): boolean {
   if (heightAt(state, to) > 0) return false;
   if (hexDistance(from, to) !== 1) return false;
+  // The sliding piece is lifted out of its starting cell for the whole move, so
+  // that cell cannot act as a wall when it flanks a later step.
+  const vacated = heightAt(state, origin) === 1;
   const shared = commonNeighbors(from, to);
-  // A piece cannot squeeze through a gap that is closed on both sides.
-  return !shared.every((coord) => heightAt(state, coord) > 0);
+  const flankOccupied = shared.map(
+    (coord) => heightAt(state, coord) > 0 && !(vacated && coordsEqual(coord, origin)),
+  );
+  // A piece cannot squeeze through a gap that is closed on both sides...
+  if (flankOccupied.every(Boolean)) return false;
+  // ...and it cannot drift across a gap that is open on both sides either. A
+  // slide has to run along the hive, hugging a piece on one side of the edge it
+  // crosses; with both flanks empty the piece would be moving through open
+  // space and, on a multi-step move, would lose contact with the hive midway.
+  if (flankOccupied.every((occupied) => !occupied)) return false;
+  return true;
 }
 
 /**
@@ -195,7 +212,7 @@ function slidingExact(state: GameState, from: Coord, steps: number): Coord[] {
     for (const next of neighborCoords(current)) {
       const key = coordKey(next);
       if (visited.has(key)) continue;
-      if (!slideStepAllowed(state, current, next)) continue;
+      if (!slideStepAllowed(state, current, next, from)) continue;
       if (!touchesHive(state, from, next)) continue;
       visited.add(key);
       walk(next, depth + 1);
@@ -217,7 +234,7 @@ function slidingReach(state: GameState, from: Coord): Coord[] {
     for (const next of neighborCoords(current)) {
       const key = coordKey(next);
       if (visited.has(key)) continue;
-      if (!slideStepAllowed(state, current, next)) continue;
+      if (!slideStepAllowed(state, current, next, from)) continue;
       if (!touchesHive(state, from, next)) continue;
       visited.add(key);
       walk(next, depth + 1);
@@ -247,7 +264,7 @@ function beetleDestinations(state: GameState, from: Coord): Coord[] {
     } else if (occupied) {
       // Climbing onto an adjacent piece is always allowed.
       result.push(next);
-    } else if (slideStepAllowed(state, from, next) && touchesHive(state, from, next)) {
+    } else if (slideStepAllowed(state, from, next, from) && touchesHive(state, from, next)) {
       result.push(next);
     }
   }

@@ -137,13 +137,149 @@ describe('movement rules', () => {
     expect(moves).toHaveLength(1);
   });
 
-  it('lets a spider move exactly three spaces', () => {
+  it('moves a spider exactly three spaces and never one or two', () => {
     const state = mobilityState([
       tile('white', 'queen', 0, 0),
       tile('white', 'spider', 1, 0),
     ]);
     const moves = movesFrom(state).filter((m) => m.from.q === 1 && m.from.r === 0);
-    expect(moves.length).toBeGreaterThan(0);
+    // The only three-step route keeps contact with the queen and ends west of
+    // the hive; no adjacent one-step sliding move is offered.
+    expect(moves).toEqual([{ from: { q: 1, r: 0 }, to: { q: -1, r: 0 } }]);
+  });
+
+  it('walks a spider three spaces along the hive, not by straight distance', () => {
+    const state = mobilityState([
+      tile('white', 'queen', 0, 0),
+      tile('white', 'ant', 1, 0),
+      tile('white', 'ant', 2, 0),
+      tile('white', 'spider', 3, 0),
+    ]);
+    const targets = movesFrom(state)
+      .filter((m) => m.from.q === 3 && m.from.r === 0)
+      .map((m) => coordKey(m.to))
+      .sort();
+    expect(targets).toEqual(['0,1', '1,-1']);
+  });
+
+  it('lets a spider finish two hexes away when the path is three steps', () => {
+    const state = mobilityState([
+      tile('white', 'queen', 0, 0),
+      tile('white', 'ant', 1, 0),
+      tile('black', 'ant', 2, 0),
+      tile('black', 'ant', 1, -1),
+      tile('white', 'spider', 0, 1),
+    ]);
+    const targets = movesFrom(state)
+      .filter((m) => m.from.q === 0 && m.from.r === 1)
+      .map((m) => coordKey(m.to))
+      .sort();
+    expect(targets).toEqual(['0,-1', '3,0']);
+  });
+
+  it('lets a spider use a gap beside its vacated cell but not a gap with no tile alongside', () => {
+    // Live position from game #UBPXST. The spider starts at (-1,2); the hive
+    // leaves a gap between the ivory ant at (-1,1) and the onyx queen at (1,1).
+    // Those two tiles meet only at a corner, so the gap is open: the route
+    // (-1,2) -> (0,1) -> (0,2) -> (1,2) is legal, and its middle step is flanked
+    // by the onyx queen and by the spider's own vacated cell.
+    // (2,1) is not reachable: the shortest way there starts with
+    // (-1,2) -> (0,2), whose two flanking cells are both empty, so the spider
+    // would slide through open space instead of along a tile.
+    const state = mobilityState([
+      tile('white', 'queen', 0, -1),
+      tile('black', 'ant', 1, -1),
+      tile('white', 'beetle', 0, 0),
+      tile('black', 'ant', 1, 0),
+      tile('white', 'grasshopper', 2, 0),
+      tile('black', 'beetle', 2, 0),
+      tile('white', 'ant', -1, 1),
+      tile('black', 'queen', 1, 1),
+      tile('white', 'spider', -1, 2),
+    ]);
+    const targets = movesFrom(state)
+      .filter((m) => m.from.q === -1 && m.from.r === 2)
+      .map((m) => coordKey(m.to))
+      .sort();
+    expect(targets).toEqual(['-1,0', '1,2']);
+  });
+
+  it('opens the corner gap beside the vacated cell for a spider step', () => {
+    // Minimal version: the ivory ant (-1,1) and onyx queen (1,1) meet only at a
+    // corner, so the spider can cross the middle gap on its second step, hugging
+    // the queen. Crossing a gap with no tile alongside is still refused.
+    const state = mobilityState([
+      tile('white', 'queen', 0, 0),
+      tile('white', 'ant', -1, 1),
+      tile('black', 'ant', 1, 0),
+      tile('black', 'queen', 1, 1),
+      tile('white', 'spider', -1, 2),
+    ]);
+    const targets = movesFrom(state)
+      .filter((m) => m.from.q === -1 && m.from.r === 2)
+      .map((m) => coordKey(m.to))
+      .sort();
+    expect(targets).toEqual(['-1,0', '1,2']);
+  });
+
+  it('refuses the two-hex-away bay crossing for a spider (live game R5VE38)', () => {
+    // The reported position: the white spider at (-2,-1) was offered the cell
+    // (0,-2) sitting in the notch between the onyx hopper (-1,-1) and the onyx
+    // queen (1,-3). Three slides reach it only the long way round:
+    // (-2,-1) -> (-1,-2) -> (0,-3) -> (0,-2). That first hop out of (-1,-2)
+    // crosses the edge between (-1,-2) and (0,-3), whose two flanking cells
+    // (0,-2) and (-1,-3) are both empty - the spider would leave the hive and
+    // rejoin it. Refused, so only the walk that hugs a tile all the way round
+    // survives: (-2,-1) -> (-1,-2) -> (0,-2) -> (0,-3), landing on (0,-3).
+    const state = mobilityState([
+      tile('white', 'grasshopper', 0, 0),
+      tile('black', 'beetle', 0, -1),
+      tile('black', 'beetle', 1, -2),
+      tile('black', 'queen', 1, -3),
+      tile('white', 'queen', 0, 1),
+      tile('black', 'grasshopper', -1, -1),
+      tile('white', 'beetle', -1, 2),
+      tile('white', 'spider', -2, -1),
+      tile('black', 'ant', 1, 1),
+      tile('white', 'ant', 1, -4),
+      tile('black', 'grasshopper', 2, 1),
+    ]);
+    const targets = movesFrom(state)
+      .filter((m) => m.from.q === -2 && m.from.r === -1)
+      .map((m) => coordKey(m.to))
+      .sort();
+    expect(targets).toEqual(['-1,1', '0,-3']);
+  });
+
+  it('lets an ant leave that same gap once its own cell is treated as vacated', () => {
+    const state = mobilityState([
+      tile('white', 'queen', 0, 0),
+      tile('white', 'ant', -1, 1),
+      tile('black', 'ant', 1, 0),
+      tile('black', 'queen', 1, 1),
+      tile('white', 'ant', -1, 2),
+    ]);
+    const targets = movesFrom(state)
+      .filter((m) => m.from.q === -1 && m.from.r === 2)
+      .map((m) => coordKey(m.to));
+    // The ant's second step (0,1) -> (0,2) is flanked by the onyx queen and the
+    // ant's own vacated cell; it must be able to continue around the hive.
+    expect(targets).toContain('0,2');
+    expect(targets).toContain('1,2');
+  });
+
+  it('does not let a spider squeeze through a closed gate', () => {
+    const state = mobilityState([
+      tile('white', 'queen', 0, 0),
+      tile('white', 'spider', 1, 0),
+      tile('white', 'grasshopper', 2, 0),
+      tile('black', 'grasshopper', 1, -1),
+      tile('white', 'ant', 1, 1),
+      tile('white', 'grasshopper', 2, -1),
+    ]);
+    // Every one-step exit from (1,0) passes between two occupied tiles, and a
+    // spider may not jump over a gap.
+    expect(movesFrom(state).filter((m) => m.from.q === 1 && m.from.r === 0)).toHaveLength(0);
   });
 
   it('lets a beetle climb onto the hive and pins the piece below', () => {

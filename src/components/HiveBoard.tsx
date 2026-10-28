@@ -1,8 +1,11 @@
-import { useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from 'react';
 import type { Action, Bug, Color, GameState, Position } from '../types';
 import { coordKey, hexCorners, hexToPixel, parseKey } from '../../shared/hex';
 import { heightAt, queenCoord, topAt } from '../../shared/hive/engine';
 import { BUG_META } from '../../shared/types';
+import type { BoardHitTest, DragPayload } from '../lib/dropTarget';
+import { dropTargets, nearestDropTarget } from '../lib/dropTarget';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { BoardTile, BOARD_HEX_SIZE, HexOutline, HexRing } from './HexTile';
 
@@ -15,7 +18,36 @@ interface HiveBoardProps {
   onSelectionChange: (selection: Position) => void;
   onAction: (action: Action) => void;
   className?: string;
+  /** Exposes board geometry to the drag hook. */
+  dragRef?: Ref<BoardHitTest>;
+  /** Cell the drag hook has snapped to, overriding the mouse hover. */
+  previewKey?: string | null;
+  /** Called on pointerdown over a movable piece. */
+  onPieceDragStart?: (payload: DragPayload, event: ReactPointerEvent) => void;
+  /** True once, when the click that follows a drag should be ignored. */
+  consumeDragClick?: () => boolean;
+  /** Set when the game is over; the loser's queen falls before the modal opens. */
+  finishWinner?: Color | null;
+  /**
+   * Keeps the finish effect running - the queen falls once, then the shockwave
+   * and shards loop - for as long as this stays true. The parent releases it
+   * when the result modal is allowed to open.
+   */
+  finishHold?: boolean;
 }
+
+/** How far from a legal cell centre a drop still counts, in board units. */
+const DROP_RADIUS = BOARD_HEX_SIZE * 0.95;
+
+/** Six chips of the shattered queen, thrown outwards at 60° intervals. */
+const FINISH_SHARDS = Array.from({ length: 6 }, (_, index) => {
+  const angle = (Math.PI / 3) * index + Math.PI / 6;
+  return {
+    dx: Math.cos(angle) * BOARD_HEX_SIZE * 1.9,
+    dy: Math.sin(angle) * BOARD_HEX_SIZE * 1.9,
+    spin: index % 2 === 0 ? 220 : -180,
+  };
+});
 
 interface PlacedCell {
   key: string;
@@ -39,8 +71,18 @@ export function HiveBoard({
   onSelectionChange,
   onAction,
   className = '',
+  dragRef,
+  previewKey = null,
+  onPieceDragStart,
+  consumeDragClick,
+  finishWinner = null,
+  finishHold = false,
 }: HiveBoardProps) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const [landedKey, setLandedKey] = useState<string | null>(null);
+  const [falling, setFalling] = useState<Color | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const lastMoveNumber = useRef(state.moveNumber);
   const gradientId = `board-glow-${useId().replaceAll(':', '')}`;
   const narrow = useMediaQuery('(max-width: 720px)');
   const short = useMediaQuery('(max-height: 540px)');
@@ -96,6 +138,61 @@ export function HiveBoard({
     }
     return set;
   }, [legalActions, canAct]);
+
+  const hitTest = useCallback(
+    (clientX: number, clientY: number, payload: DragPayload) => {
+      if (!canAct) return null;
+      const svg = svgRef.current;
+      if (!svg) return null;
+      const matrix = svg.getScreenCTM();
+      if (!matrix) return null;
+
+      const point = svg.createSVGPoint();
+      point.x = clientX;
+      point.y = clientY;
+      const local = point.matrixTransform(matrix.inverse());
+
+      return nearestDropTarget(
+        local,
+        dropTargets(legalActions, payload, BOARD_HEX_SIZE),
+        DROP_RADIUS,
+      );
+    },
+    [canAct, legalActions],
+  );
+
+  useImperativeHandle(dragRef, () => ({ hitTest }), [hitTest]);
+
+  // The defeated queen falls once and the shockwave/shard effect loops for as
+  // long as the parent holds the result modal back. Releasing the hold puts the
+  // board straight again, so the modal opens onto a clean board.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  useEffect(() => {
+    if (!finishWinner || !finishHold) {
+      setFalling(null);
+      return;
+    }
+    const loser: Color = finishWinner === 'white' ? 'black' : 'white';
+    if (!queenCoord(stateRef.current, loser)) return;
+    setFalling(loser);
+  }, [finishWinner, finishHold]);
+
+  const fallingQueen = falling ? queenCoord(state, falling) : null;
+  const fallingPixel = fallingQueen ? hexToPixel(fallingQueen, BOARD_HEX_SIZE) : null;
+  const fallingKey = fallingQueen ? coordKey(fallingQueen) : null;
+
+  // Pop the tile that just arrived, but never on the initial render.
+  useEffect(() => {
+    if (state.moveNumber === lastMoveNumber.current) return;
+    lastMoveNumber.current = state.moveNumber;
+    const to = state.lastMove?.to;
+    if (!to) return;
+    setLandedKey(coordKey(to));
+    const timer = window.setTimeout(() => setLandedKey(null), 380);
+    return () => window.clearTimeout(timer);
+  }, [state.moveNumber, state.lastMove]);
 
   const emptyNeighbours = useMemo(() => {
     if (cells.length === 0) return [];
@@ -154,12 +251,16 @@ export function HiveBoard({
       ? state.cells[coordKey(selectedCoord)][state.cells[coordKey(selectedCoord)].length - 1]
       : null;
 
-  const hoveredCoord = hovered ? parseKey(hovered) : null;
+  const ghostKey = previewKey ?? hovered;
+  const hoveredCoord = ghostKey ? parseKey(ghostKey) : null;
   const hoveredPixel = hoveredCoord ? hexToPixel(hoveredCoord, BOARD_HEX_SIZE) : null;
   const ghost =
-    selection?.kind === 'bug' && hovered && placementActions.has(hovered)
+    selection?.kind === 'bug' && ghostKey && placementActions.has(ghostKey)
       ? { owner: color, bug: selection.bug }
-      : selection?.kind === 'cell' && hovered && moveActions.has(hovered) && selectedTile
+      : selection?.kind === 'cell' &&
+          ghostKey &&
+          moveActions.has(ghostKey) &&
+          selectedTile
         ? { owner: selectedTile.owner, bug: selectedTile.bug }
         : null;
 
@@ -191,6 +292,7 @@ export function HiveBoard({
 
   const handleCellClick = (key: string) => {
     if (!canAct) return;
+    if (consumeDragClick?.()) return;
     const coord = parseKey(key);
 
     const move = moveActions.get(key);
@@ -230,8 +332,9 @@ export function HiveBoard({
   return (
     <div className={`hive-board ${className}`}>
       <svg
+        ref={svgRef}
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-        className="board-svg"
+        className={`board-svg ${canAct ? 'is-live' : ''}`}
         role="application"
         aria-label="Hive game board"
       >
@@ -277,7 +380,17 @@ export function HiveBoard({
         ))}
 
         {cells.map((cell) => (
-          <g key={cell.key}>
+          <g
+            key={cell.key}
+            className={
+              [
+                landedKey === cell.key ? 'board-tile-landed' : '',
+                fallingKey === cell.key ? 'board-tile-defeated' : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
+          >
             {cell.stack.map((tile, index) => (
               <BoardTile
                 key={tile.id}
@@ -330,10 +443,48 @@ export function HiveBoard({
           );
         })}
 
+        {falling && fallingPixel ? (
+          <g className="finish-fx" aria-hidden="true">
+            <circle
+              cx={fallingPixel.x}
+              cy={fallingPixel.y}
+              r={BOARD_HEX_SIZE * 0.82}
+              className="finish-shockwave"
+            />
+            <circle
+              cx={fallingPixel.x}
+              cy={fallingPixel.y}
+              r={BOARD_HEX_SIZE * 0.82}
+              className="finish-shockwave is-late"
+            />
+            {FINISH_SHARDS.map((shard, index) => (
+              <g
+                key={`shard-${index}`}
+                transform={`translate(${fallingPixel.x} ${fallingPixel.y}) rotate(${index * 60}) translate(${BOARD_HEX_SIZE * 0.62} 0)`}
+              >
+                <polygon
+                  points="-9,-5 10,0 -9,5"
+                  className="finish-shard"
+                  style={
+                    {
+                      '--shard-dx': `${shard.dx}px`,
+                      '--shard-dy': `${shard.dy}px`,
+                      '--shard-spin': `${shard.spin}deg`,
+                    } as CSSProperties
+                  }
+                />
+              </g>
+            ))}
+          </g>
+        ) : null}
+
         {[...placementActions.entries()].map(([key, action]) => {
           const { x, y } = hexToPixel({ q: action.q, r: action.r }, BOARD_HEX_SIZE);
           return (
-            <g key={`place-${key}`} className="placement-marker">
+            <g
+              key={`place-${key}`}
+              className={`placement-marker ${previewKey === key ? 'is-snapped' : ''}`}
+            >
               <polygon
                 points={hexCorners(x, y, BOARD_HEX_SIZE - 3)}
                 className="placement-fill"
@@ -346,7 +497,10 @@ export function HiveBoard({
         {[...moveActions.entries()].map(([key, action]) => {
           const { x, y } = hexToPixel(action.to, BOARD_HEX_SIZE);
           return (
-            <g key={`move-${key}`} className="move-marker">
+            <g
+              key={`move-${key}`}
+              className={`move-marker ${previewKey === key ? 'is-snapped' : ''}`}
+            >
               <circle cx={x} cy={y} r={22} className="move-halo" />
               <circle cx={x} cy={y} r={7} className="move-dot" />
             </g>
@@ -380,6 +534,21 @@ export function HiveBoard({
                   tabIndex={actionable ? 0 : -1}
                   aria-label={`Cell ${key}`}
                   onClick={() => handleCellClick(key)}
+                  onPointerDown={(event) => {
+                    if (!canAct || !onPieceDragStart) return;
+                    if (!event.isPrimary || event.button !== 0) return;
+                    const top = topAt(state, coord);
+                    if (top?.owner !== color || !movable.has(key)) return;
+                    onPieceDragStart(
+                      {
+                        kind: 'cell',
+                        coord: { q: coord.q, r: coord.r },
+                        owner: top.owner,
+                        bug: top.bug,
+                      },
+                      event,
+                    );
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();

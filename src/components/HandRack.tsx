@@ -1,3 +1,4 @@
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { Bug, Color, Hand } from '../../shared/types';
 import { BUGS, BUG_META } from '../../shared/types';
 import { BugIcon } from './BugIcon';
@@ -8,6 +9,7 @@ export function HandRack({
   color,
   selected,
   onSelect,
+  onDragStart,
   disabled = false,
   label = 'Your tiles',
 }: {
@@ -15,6 +17,8 @@ export function HandRack({
   color: Color;
   selected: Bug | null;
   onSelect: (bug: Bug) => void;
+  /** Starts a drag gesture; clicking the card still selects as before. */
+  onDragStart?: (bug: Bug, event: ReactPointerEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
   label?: string;
 }) {
@@ -43,6 +47,13 @@ export function HandRack({
                 type="button"
                 className={`hand-card ${isSelected ? 'is-selected' : ''}`}
                 onClick={() => onSelect(bug)}
+                onPointerDown={(event) => {
+                  if (disabled || !onDragStart) return;
+                  if (!event.isPrimary || event.button !== 0) return;
+                  onDragStart(bug, event);
+                }}
+                onDragStart={(event) => event.preventDefault()}
+                draggable={false}
                 disabled={disabled}
                 aria-pressed={isSelected}
                 title={BUG_META[bug].move}

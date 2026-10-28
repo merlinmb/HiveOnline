@@ -300,6 +300,10 @@
   user-select: none;
 }
 
+.board-svg.is-live {
+  touch-action: none;
+}
+
 .start-hex {
   fill: rgba(231, 179, 74, 0.03);
   stroke: rgba(231, 179, 74, 0.25);
@@ -610,6 +614,213 @@
 
 .hand-card.is-selected .hand-card-name {
   color: var(--gold-bright);
+}
+
+/* ---- drag and drop ------------------------------------------------------- */
+
+.hand-card:not(:disabled) {
+  cursor: grab;
+}
+
+.hand-card,
+.cell-hit.is-actionable {
+  -webkit-touch-callout: none;
+}
+
+/* On a phone the rack scrolls sideways; vertical gestures towards the board
+   still belong to the game. */
+.hand-card {
+  touch-action: pan-x;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Only claim touch gestures while the board is actually interactive. Chromium
+   ignores touch-action on SVG content, so the opt-out has to sit on the root:
+   without it a piece drag is stolen by the page scroller and cancelled. */
+.board-svg.is-live {
+  touch-action: none;
+}
+
+body.is-tile-dragging {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body.is-tile-dragging .hand-card,
+body.is-tile-dragging .cell-hit {
+  cursor: grabbing;
+}
+
+.tile-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  display: grid;
+  width: 86px;
+  height: 86px;
+  place-items: center;
+  visibility: hidden;
+  opacity: 0;
+  filter: drop-shadow(0 18px 26px rgba(0, 0, 0, 0.45));
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  will-change: transform;
+}
+
+.tile-drag-ghost.is-active {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* A legal cell already shows a snapped ghost on the board, so the floating
+   tile fades back instead of doubling up. */
+.tile-drag-ghost.is-snapped {
+  opacity: 0.25;
+}
+
+.tile-drag-ghost .tile-visual {
+  width: 100%;
+  height: 100%;
+}
+
+.placement-marker.is-snapped .placement-fill,
+.move-marker.is-snapped .move-halo {
+  fill: rgba(231, 179, 74, 0.24);
+  stroke-width: 2.2;
+}
+
+.placement-marker.is-snapped,
+.move-marker.is-snapped {
+  animation: none;
+}
+
+.board-tile-landed {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: tile-land 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+}
+
+@keyframes tile-land {
+  from {
+    transform: scale(0.78);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+/* ---- finish sequence ----------------------------------------------------- */
+
+.finish-fx {
+  pointer-events: none;
+}
+
+/* The defeated queen shivers, topples and falls out of the hive. */
+.board-tile-defeated {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: queen-defeat 1.3s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+@keyframes queen-defeat {
+  0% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  12% {
+    transform: scale(1.07) rotate(-2.5deg);
+  }
+  32% {
+    transform: scale(1.01) rotate(2deg);
+  }
+  58% {
+    transform: scale(0.94) rotate(-1.5deg);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(0.55) rotate(9deg) translateY(18px);
+    opacity: 0;
+  }
+}
+
+.finish-shockwave {
+  fill: none;
+  stroke: var(--gold-bright);
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: finish-shockwave 1.2s ease-out infinite;
+}
+
+.finish-shockwave.is-late {
+  stroke-width: 1.1;
+  animation-delay: 0.18s;
+}
+
+@keyframes finish-shockwave {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  72% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.95);
+    opacity: 0;
+  }
+}
+
+.finish-shard {
+  fill: var(--gold-bright);
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: finish-shard 1.2s cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
+}
+
+@keyframes finish-shard {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(0.5);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    transform: translate(var(--shard-dx), var(--shard-dy)) rotate(var(--shard-spin)) scale(0.85);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-tile-landed {
+    animation: none;
+  }
+
+  .tile-drag-ghost {
+    transition: none;
+  }
+
+  .board-tile-defeated,
+  .finish-shockwave,
+  .finish-shard {
+    animation: none;
+  }
+
+  .finish-fx {
+    display: none;
+  }
 }
 
 .hand-empty {
